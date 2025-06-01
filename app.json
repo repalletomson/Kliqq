@@ -1,0 +1,107 @@
+{
+  "expo": {
+    "name": "vip's",
+    "slug": "vips",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/images/117d8bd8-a0f2-4580-bb6c-70918613f149.png",
+    "contain": "cover",
+    "scheme": "studentsnetworking",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "ios": {
+      "supportsTablet": true,
+      "infoPlist": {
+        "UIBackgroundModes": [
+          "remote-notification"
+        ]
+      },
+      "bundleIdentifier": "com.r.tomson.vips"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/images/VIP.png",
+        "backgroundColor": "#EEE",
+              "softwareKeyboardLayoutMode": "pan"
+
+      },
+      "googleServicesFile": "./google-services.json",
+      "useNextNotificationsApi": true,
+      "permissions": [
+        "android.permission.NOTIFICATIONS",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.NOTIFICATIONS",
+        "android.permission.RECORD_AUDIO"
+      ],
+            "softwareKeyboardLayoutMode": "pan"
+,
+      "package": "com.student.app"
+    },
+    "web": {
+      "bundler": "metro",
+      "output": "static",
+      "favicon": "./assets/images/117d8bd8-a0f2-4580-bb6c-70918613f149.png"
+    },
+    "splash": {
+      "image": "./assets/images/117d8bd8-a0f2-4580-bb6c-70918613f149.png",
+      "resizeMode": "cover",
+      "backgroundColor": "#fff"
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/images/117d8bd8-a0f2-4580-bb6c-70918613f149.png",
+          "imageResizeMode": "cover",
+          "backgroundColor": "#000000",
+          "dark": {
+            "image": "./assets/images/VIP.png",
+            "imageResizeMode": "cover",
+            "backgroundColor": "#000000"
+          }
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "The app accesses your photos to let you share them with your friends.",
+          "cameraPermission": "The app accesses your camera to let you share photos with your friends."
+        }
+      ],
+      "expo-font",
+      "expo-secure-store",
+      "@react-native-google-signin/google-signin",
+      "@react-native-firebase/app",
+      // "@react-native-google-signin/google-signin"
+    ],
+    "developmentClient": {
+      "silentLaunch": true
+    },
+   "updates": {
+      "fallbackToCacheTimeout": 0
+    },
+        "assetBundlePatterns": ["**/*"],
+
+    "experiments": {
+      "typedRoutes": true
+    },
+    "notification": {
+      "icon": "./assets/images/VIP.png",
+      "color": "#ffffff",
+      "sounds": [
+        "./local/path/to/notification-sound.wav"
+      ]
+    },
+    "extra": {
+      "router": {
+        "origin": false
+      },
+      "eas": {
+        "projectId": "f156a284-7bbc-4353-bcde-53739d132a3e"
+        // "projectId":"vips"
+      }
+    },
+    "owner": "r.tomson"
+  }
+}// expo-firebase-core
