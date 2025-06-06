@@ -2,6 +2,7 @@ import React from 'react';
 import { View, TouchableOpacity, Text, Modal, Pressable } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 
+
 export const ImageOptionsModal = ({
   visible,
   onClose,

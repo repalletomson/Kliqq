@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   View,
@@ -13,7 +12,9 @@ import {
   BackHandler,
   StatusBar,
   Pressable,
-  ActivityIndicator
+  ActivityIndicator,
+  Animated,
+  Dimensions
 } from 'react-native';
 import { MaterialIcons, Ionicons } from '@expo/vector-icons';
 import {
@@ -36,22 +37,30 @@ import { db, auth, storage } from '../../../config/firebaseConfig';
 import { formatMessageTime } from '../../../utiles/dateFormat';
 import { SearchModal } from '../../../components/SearchModal';
 import { CHAT_TYPES } from '../../../types/index';
-
 import { AES, enc } from "react-native-crypto-js";
 
 const DEFAULT_PROFILE='https://assets.grok.com/users/8c354dfe-946c-4a32-b2de-5cb3a8ab9776/generated/h4epnwdFODX6hW0L/image.jpg';
+
+// Updated dark theme colors
 const COLORS = {
-  background: '#070606',
-  surface: '#171616',
+  background: '#000000',
+  secondaryBackground: '#000000',
+  surface: '#111111',
   textPrimary: '#FFFFFF',
-  textSecondary: '#B2B3B2',
-  accent: '#6C6C6D',
-  separator: '#1E1E1E',
-  buttonBackground: '#1A1A1A',
-  primary: '#007AFF',
-  border: '#333333'
+  textSecondary: '#A1A1AA',
+  textTertiary: '#71717A',
+  accent: '#3B82F6',
+  separator: '#27272A',
+  border: '#27272A',
+  primary: '#3B82F6',
+  success: '#10B981',
+  unreadBackground: '#1E3A8A',
+  searchBackground: '#111111',
+  shadow: 'rgba(0, 0, 0, 0.3)'
 };
-const SECRET_KEY = "my-very-secure-key-12345";
+
+const { width } = Dimensions.get('window');
+const SECRET_KEY = "kliq-secure-messaging-2024";
 
 export default function ChatList() {
   const [chats, setChats] = useState([]);
@@ -69,36 +78,7 @@ export default function ChatList() {
   const mounted = useRef(true);
   const searchTimeout = useRef(null);
   const chatsUnsubscribe = useRef(null);
-      
-  // useEffect(() => {
-  //   const q = query(
-  //     collection(db, "unreadCounts", auth.currentUser.uid, "senders")
-  //   );
-  //   const unsubscribe = onSnapshot(q, (snapshot) => {
-  //     const counts = {};
-  //     snapshot.docs.forEach((doc) => {
-  //       counts[doc.id] = doc.data().count;
-  //     });
-  //     setUnreadCounts(counts);
-  // // console.log("counts",unreadCounts)
-  // // console.log("ksdnskn")
-  //   });
-  //   return () => unsubscribe();
-  // }, [unreadCounts]);
 
-
-
-  // useEffect(() => {
-  //   const userId = auth.currentUser.uid; // Replace with the current user's ID
-  //   listenForUnreadCounts(userId, (counts) => {
-  //     setUnreadCounts(counts);
-
-  //     console.log('Unread counts:', counts);
-  //   });
-  // }, []);
-
-  // const currentUserId = auth.currentUser.uid; 
-// console.log("currentUserId",auth.currentUser.uid)
 // chats.js (only showing the unread count retrieval part)
 useEffect(() => {
   const q = query(
@@ -113,7 +93,6 @@ useEffect(() => {
   });
   return () => unsubscribe();
 }, []);
-
 
   useEffect(() => {
     const backHandler = BackHandler.addEventListener(
@@ -209,7 +188,6 @@ useEffect(() => {
           });
 
           return () => {
-
             unreadUnsubscribe();
           };
         } catch (err) {
@@ -218,7 +196,6 @@ useEffect(() => {
             setError('Failed to load chat details');
           }
           console.error("Error loading chat details:", err);
-
         } finally {
           if (mounted.current) {
             setLoading(false);
@@ -275,7 +252,7 @@ useEffect(() => {
           u.id !== auth.currentUser.uid &&
           u.fullName?.toLowerCase().includes(queryText.toLowerCase())
         );
-    // console.log(results)
+
       if (mounted.current) {
         setSearchResults(results);
       }
@@ -343,7 +320,6 @@ useEffect(() => {
       setLoading(false);
     }
   };
-  
 
   const handleSearchNavigation = useCallback(async (recipientId) => {
     try {
@@ -443,16 +419,6 @@ useEffect(() => {
     }
   }, []);
 
-  const fetchChatId = async (groupId) => {
-    const querySnapshot = await getDocs(
-      query(collection(db, 'chats'), where('id', '==', groupId))
-    );
-    if (!querySnapshot.empty) {
-      return querySnapshot.docs[0].id;
-    }
-    return null;
-  };
-  
   const formatTime = (timestamp) => {
     if (!timestamp) return '';
     const date = new Date(timestamp.seconds * 1000);
@@ -466,25 +432,83 @@ useEffect(() => {
     return date.toLocaleDateString([], { month: 'short', day: 'numeric' });
   };
 
-
-
-  // Updated SearchBar component
-  const SearchBar = () => (
-    <View style={{ 
-      backgroundColor: COLORS.background, 
-      paddingHorizontal: 16,
-      paddingVertical: 12,
-      marginBottom: 8
+  // Modern Header Component
+  const Header = () => (
+    <View style={{
+      backgroundColor: COLORS.background,
+      paddingTop: 60,
+      paddingBottom: 20,
+      paddingHorizontal: 20,
+      borderBottomWidth: 1,
+      borderBottomColor: COLORS.separator,
+      shadowColor: COLORS.shadow,
+      shadowOffset: { width: 0, height: 1 },
+      shadowOpacity: 1,
+      shadowRadius: 3,
+      elevation: 3,
     }}>
-      <View style={{ 
+      <View style={{
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+      }}>
+        {/* Chat Title */}
+        <Text style={{
+          fontSize: 34,
+          fontWeight: '700',
+          color: COLORS.textPrimary,
+          letterSpacing: 0.4,
+        }}>
+          Chat
+        </Text>
+        
+        {/* Action Buttons */}
+        <View style={{ flexDirection: 'row', gap: 12 }}>
+          {/* New Chat Button */}
+          <TouchableOpacity
+            onPress={() => setShowNewChatModal(true)}
+            style={{
+              width: 44,
+              height: 44,
+              borderRadius: 22,
+              backgroundColor: COLORS.primary,
+              justifyContent: 'center',
+              alignItems: 'center',
+              shadowColor: COLORS.primary,
+              shadowOffset: { width: 0, height: 2 },
+              shadowOpacity: 0.3,
+              shadowRadius: 4,
+              elevation: 3,
+            }}
+          >
+            <Ionicons name="create-outline" size={22} color={COLORS.background} />
+          </TouchableOpacity>
+        </View>
+      </View>
+    </View>
+  );
+
+  // Modern Search Bar Component
+  const SearchBar = () => (
+    <View style={{
+      backgroundColor: COLORS.background,
+      paddingHorizontal: 20,
+      paddingVertical: 16,
+    }}>
+      <View style={{
         flexDirection: 'row',
         alignItems: 'center',
-        backgroundColor: COLORS.background,
-        borderRadius: 15,
+        backgroundColor: COLORS.searchBackground,
+        borderRadius: 16,
         paddingHorizontal: 16,
         paddingVertical: 12,
         borderWidth: 1,
-        borderColor: COLORS.accent + '20'
+        borderColor: COLORS.border,
+        shadowColor: COLORS.shadow,
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 1,
+        shadowRadius: 2,
+        elevation: 1,
       }}>
         <Ionicons name="search-outline" size={20} color={COLORS.textSecondary} />
         <TextInput
@@ -494,20 +518,20 @@ useEffect(() => {
             fontSize: 16,
             color: COLORS.textPrimary,
             fontFamily: 'System',
-            letterSpacing: 0.3
+            letterSpacing: 0.3,
           }}
-          placeholder="Search messages..."
+          placeholder="Search chat..."
           placeholderTextColor={COLORS.textSecondary}
           value={searchQuery}
           onChangeText={setSearchQuery}
         />
         {searching ? (
-          <ActivityIndicator size="small" color={COLORS.textSecondary} />
-        ) : searchQuery && (
+          <ActivityIndicator size="small" color={COLORS.primary} />
+        ) : searchQuery ? (
           <TouchableOpacity onPress={() => setSearchQuery('')}>
             <Ionicons name="close-circle" size={20} color={COLORS.textSecondary} />
           </TouchableOpacity>
-        )}
+        ) : null}
       </View>
     </View>
   );
@@ -516,7 +540,7 @@ useEffect(() => {
     let decryptedText = "";
   
     // Decrypt the last message text if it exists
-    if (text ) {
+    if (text) {
       try {
         decryptedText = AES.decrypt(text, SECRET_KEY).toString(enc.Utf8);
 
@@ -528,32 +552,60 @@ useEffect(() => {
       } catch (error) {
         console.error("Decryption error:", error);
         decryptedText = "[Decryption Failed]";
+        return decryptedText;
       }
-    }}
-  
+    }
+    return "";
+  }
 
+  // Modern Chat Item Component with tap animation
   const ChatItem = ({ item }) => {
+    const scaleAnim = useRef(new Animated.Value(1)).current;
+
+    const handlePressIn = () => {
+      Animated.spring(scaleAnim, {
+        toValue: 0.98,
+        useNativeDriver: true,
+        speed: 20,
+        bounciness: 4,
+      }).start();
+    };
+
+    const handlePressOut = () => {
+      Animated.spring(scaleAnim, {
+        toValue: 1,
+        useNativeDriver: true,
+        speed: 20,
+        bounciness: 4,
+      }).start();
+    };
+
+    const hasUnread = item.unreadcount >= 1;
 
     return (
-      <Pressable
-        onPress={() => handleChatNavigation(item.recipientId)}
-        onLongPress={() => {
-          setSelectedChat(item);
-          setShowDeleteModal(true);
-        }}
-        style={({ pressed }) => ({
-          backgroundColor: pressed ? `${COLORS.surface}80` : COLORS.background,
-          paddingVertical: 14,
-          paddingHorizontal: 16,
-          marginBottom: 1,
-          borderRadius: 12,
-          marginHorizontal: 8,
-          marginVertical: 4,
-        })}
-      >
-        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-          {/* Profile Image with online indicator possibility */}
-          <View style={{ position: 'relative' }}>
+      <Animated.View style={{ transform: [{ scale: scaleAnim }] }}>
+        <Pressable
+          onPress={() => handleChatNavigation(item.recipientId)}
+          onLongPress={() => {
+            setSelectedChat(item);
+            setShowDeleteModal(true);
+          }}
+          onPressIn={handlePressIn}
+          onPressOut={handlePressOut}
+          style={{
+            backgroundColor: hasUnread ? COLORS.unreadBackground : COLORS.background,
+            paddingVertical: 16,
+            paddingHorizontal: 20,
+            marginHorizontal: 4,
+            marginVertical: 2,
+            borderRadius: 12,
+            minHeight: 80,
+            flexDirection: 'row',
+            alignItems: 'center',
+          }}
+        >
+          {/* Profile Image with online indicator */}
+          <View style={{ position: 'relative', marginRight: 16 }}>
             <Image
               source={
                 item.recipient?.profileImage
@@ -561,12 +613,12 @@ useEffect(() => {
                   : { uri: DEFAULT_PROFILE }
               }
               style={{
-                width: 52,
-                height: 52,
-                borderRadius: 26,
-                backgroundColor: `${COLORS.surface}80`,
-                borderWidth: item.unreadcount >= 1 ? 2 : 0,
-                borderColor: COLORS.primary,
+                width: 56,
+                height: 56,
+                borderRadius: 28,
+                backgroundColor: COLORS.searchBackground,
+                borderWidth: hasUnread ? 2 : 1,
+                borderColor: hasUnread ? COLORS.primary : COLORS.border,
               }}
             />
             {item.recipient?.online && (
@@ -574,99 +626,103 @@ useEffect(() => {
                 position: 'absolute',
                 bottom: 2,
                 right: 0,
-                width: 14,
-                height: 14,
-                borderRadius: 7,
-                backgroundColor: '#4CAF50',
+                width: 16,
+                height: 16,
+                borderRadius: 8,
+                backgroundColor: COLORS.success,
                 borderWidth: 2,
                 borderColor: COLORS.background,
               }} />
             )}
           </View>
-    
+
           {/* Chat Content */}
-          <View style={{ 
-            flex: 1, 
-            marginLeft: 14,
-            borderBottomWidth: 1,
-            borderBottomColor: `${COLORS.border}30`,
-            paddingBottom: 4
-          }}>
+          <View style={{ flex: 1 }}>
             {/* Top Row: Name and Time */}
-            <View style={{ 
-              flexDirection: 'row', 
-              justifyContent: 'space-between', 
-              alignItems: 'center', 
-              marginBottom: 6 
+            <View style={{
+              flexDirection: 'row',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              marginBottom: 6,
             }}>
-              <Text style={{ 
-                fontSize: 16,
-                fontWeight: item.unreadcount >= 1 ? '700' : '600',
+              <Text style={{
+                fontSize: 17,
+                fontWeight: hasUnread ? '700' : '600',
                 color: COLORS.textPrimary,
                 letterSpacing: 0.3,
-              }}>
+                flex: 1,
+              }} numberOfLines={1}>
                 {item.recipient?.fullName || 'Unknown User'}
               </Text>
               
-              <Text style={{ 
-                fontSize: 12,
-                color: item.unreadcount >= 1 ? COLORS.textPrimary : COLORS.textSecondary,
+              <Text style={{
+                fontSize: 14,
+                color: hasUnread ? COLORS.primary : COLORS.textSecondary,
                 letterSpacing: 0.2,
-                fontWeight: item.unreadcount >= 1 ? '600' : '400',
+                fontWeight: hasUnread ? '600' : '400',
+                marginLeft: 8,
               }}>
                 {formatTime(item.lastMessageTime)}
               </Text>
             </View>
             
             {/* Bottom Row: Message Preview and Unread Count */}
-            <View style={{ 
-              flexDirection: 'row', 
-              justifyContent: 'space-between', 
+            <View style={{
+              flexDirection: 'row',
+              justifyContent: 'space-between',
               alignItems: 'center',
-              marginTop: 2
             }}>
               {/* Message Preview */}
               <Text 
-                style={{ 
-                  color: item.unreadcount >= 1 ? COLORS.textPrimary : COLORS.textSecondary,
+                style={{
+                  color: hasUnread ? COLORS.textPrimary : COLORS.textSecondary,
                   flex: 1,
-                  fontSize: 14,
+                  fontSize: 15,
                   letterSpacing: 0.2,
-                fontWeight: item.unreadcount >= 1 ? '500' : '400',
-                  marginRight: 8,
+                  fontWeight: hasUnread ? '500' : '400',
+                  marginRight: 12,
                 }}
                 numberOfLines={1}
               >
-                {handleDecrypt( item.lastMessage) || 'No messages yet'}
+                {handleDecrypt(item.lastMessage) || 'No messages yet'}
               </Text>
               
-              {/* Unread Count Badge */}
-              {item.unreadcount >= 1 && (
-                <View style={{
-                  backgroundColor: COLORS.primary,
-                  borderRadius: 12,
-                  minWidth: 22,
-                  height: 22,
-                  justifyContent: 'center',
-                  alignItems: 'center',
-                  paddingHorizontal: 6,
-                }}>
-                  <Text style={{ 
-                    color: '#FFFFFF',
-                    fontSize: 12,
-                    fontWeight: '600',
+              {/* Unread Count Badge and Status Icons */}
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                {/* Double tick for seen messages */}
+                {!hasUnread && item.lastMessage && (
+                  <Ionicons name="checkmark-done" size={16} color={COLORS.primary} />
+                )}
+                
+                {/* Unread Count Badge */}
+                {hasUnread && (
+                  <View style={{
+                    backgroundColor: COLORS.primary,
+                    borderRadius: 12,
+                    minWidth: 24,
+                    height: 24,
+                    justifyContent: 'center',
+                    alignItems: 'center',
+                    paddingHorizontal: 8,
                   }}>
-                    {item.unreadcount}
-                  </Text>
-                </View>
-              )}
+                    <Text style={{
+                      color: COLORS.background,
+                      fontSize: 12,
+                      fontWeight: '600',
+                    }}>
+                      {item.unreadcount > 99 ? '99+' : item.unreadcount}
+                    </Text>
+                  </View>
+                )}
+              </View>
             </View>
           </View>
-        </View>
-      </Pressable>
+        </Pressable>
+      </Animated.View>
     );
   };
-  // Updated Delete Modal with dark theme
+
+  // Modern Delete Modal
   const DeleteModal = () => (
     <Modal
       visible={showDeleteModal}
@@ -678,18 +734,21 @@ useEffect(() => {
         flex: 1,
         justifyContent: 'center',
         alignItems: 'center',
-        backgroundColor: 'rgba(0, 0, 0, 0.75)'
+        backgroundColor: 'rgba(0, 0, 0, 0.5)'
       }}>
         <View style={{
-          backgroundColor: COLORS.surface,
+          backgroundColor: COLORS.background,
           borderRadius: 20,
           padding: 24,
           width: '85%',
           maxWidth: 320,
-          borderWidth: 1,
-          borderColor: COLORS.accent + '30'
+          shadowColor: COLORS.shadow,
+          shadowOffset: { width: 0, height: 8 },
+          shadowOpacity: 1,
+          shadowRadius: 16,
+          elevation: 8,
         }}>
-          <Text style={{ 
+          <Text style={{
             fontSize: 20,
             fontWeight: '600',
             color: COLORS.textPrimary,
@@ -699,7 +758,7 @@ useEffect(() => {
           }}>
             Delete Chat
           </Text>
-          <Text style={{ 
+          <Text style={{
             color: COLORS.textSecondary,
             textAlign: 'center',
             marginBottom: 24,
@@ -708,28 +767,30 @@ useEffect(() => {
           }}>
             Are you sure you want to delete this chat? This action cannot be undone.
           </Text>
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 12 }}>
             <TouchableOpacity
               onPress={() => setShowDeleteModal(false)}
-              style={{ 
-                padding: 12,
+              style={{
+                padding: 16,
                 flex: 1,
                 alignItems: 'center',
-                marginRight: 8
+                backgroundColor: COLORS.searchBackground,
+                borderRadius: 12,
               }}
             >
-              <Text style={{ color: '#007AFF', fontWeight: '500', letterSpacing: 0.3 }}>Cancel</Text>
+              <Text style={{ color: COLORS.textPrimary, fontWeight: '600', letterSpacing: 0.3 }}>Cancel</Text>
             </TouchableOpacity>
             <TouchableOpacity
               onPress={() => deleteChat(selectedChat?.id)}
-              style={{ 
-                padding: 12,
+              style={{
+                padding: 16,
                 flex: 1,
                 alignItems: 'center',
-                marginLeft: 8
+                backgroundColor: '#FEE2E2',
+                borderRadius: 12,
               }}
             >
-              <Text style={{ color: '#FF3B30', fontWeight: '500', letterSpacing: 0.3 }}>Delete</Text>
+              <Text style={{ color: '#DC2626', fontWeight: '600', letterSpacing: 0.3 }}>Delete</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -737,47 +798,11 @@ useEffect(() => {
     </Modal>
   );
 
- 
   return (
-    <View style={{ flex: 1, backgroundColor: COLORS.background }}>
-      {/* <StatusBar barStyle="dark-content" backgroundColor="#1F2937" /> */}
+    <View style={{ flex: 1, backgroundColor: COLORS.secondaryBackground }}>
+      <StatusBar barStyle="light-content" backgroundColor={COLORS.background} />
       
-      <View style={{ 
-        backgroundColor: COLORS.background,
-        paddingTop: 60,
-        paddingBottom: 16,
-        paddingHorizontal: 20,
-        borderBottomWidth: 1,
-        borderBottomColor: COLORS.separator,
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'center'
-      }}>
-        <Text style={{ 
-          fontSize: 34,
-          fontWeight: 'bold',
-          color: COLORS.textPrimary,
-          letterSpacing: 0.4
-        }}>
-          Messages
-        </Text>
-        
-        {/* New Chat button moved to the top header */}
-        <TouchableOpacity
-          onPress={() => setShowNewChatModal(true)}
-          style={{
-            width: 44,
-            height: 44,
-            borderRadius: 22,
-            backgroundColor: '#007AFF',
-            justifyContent: 'center',
-            alignItems: 'center',
-          }}
-        >
-          <Ionicons name="create-outline" size={22} color={COLORS.textPrimary} />
-        </TouchableOpacity>
-      </View>
-
+      <Header />
       <SearchBar />
 
       <FlatList
@@ -790,28 +815,42 @@ useEffect(() => {
         }}
         refreshing={loading}
         onRefresh={loadChats}
+        showsVerticalScrollIndicator={false}
         ListEmptyComponent={
-          <View style={{ 
+          <View style={{
             flex: 1,
             justifyContent: 'center',
             alignItems: 'center',
-            padding: 32,
+            padding: 40,
             marginTop: 80
           }}>
-            <Text style={{ 
+            <Ionicons name="chatbubbles-outline" size={64} color={COLORS.textTertiary} />
+            <Text style={{
               color: COLORS.textSecondary,
               textAlign: 'center',
-              fontSize: 16,
+              fontSize: 18,
+              fontWeight: '500',
               letterSpacing: 0.3,
-              lineHeight: 24
+              lineHeight: 24,
+              marginTop: 16,
             }}>
-              No conversations yet. Start chatting!
+              No conversations yet
+            </Text>
+            <Text style={{
+              color: COLORS.textTertiary,
+              textAlign: 'center',
+              fontSize: 16,
+              letterSpacing: 0.2,
+              lineHeight: 20,
+              marginTop: 8,
+            }}>
+              Start chatting with your friends!
             </Text>
           </View>
         }
       />
 
-      {/* Custom SearchModal component to show college name below user name */}
+      {/* New Chat Modal */}
       <Modal
         visible={showNewChatModal}
         transparent
@@ -819,39 +858,61 @@ useEffect(() => {
         onRequestClose={() => setShowNewChatModal(false)}
       >
         <View style={{ flex: 1, backgroundColor: COLORS.background }}>
-          <View style={{ 
-            flexDirection: 'row', 
-            alignItems: 'center', 
-            paddingTop: 50,
-            paddingHorizontal: 16,
-            paddingBottom: 16,
+          <View style={{
+            flexDirection: 'row',
+            alignItems: 'center',
+            paddingTop: 60,
+            paddingHorizontal: 20,
+            paddingBottom: 20,
             borderBottomWidth: 1,
-            borderBottomColor: COLORS.separator
+            borderBottomColor: COLORS.separator,
+            backgroundColor: COLORS.background,
           }}>
             <TouchableOpacity 
               onPress={() => setShowNewChatModal(false)}
-              style={{ marginRight: 16 }}
+              style={{ 
+                marginRight: 16,
+                width: 44,
+                height: 44,
+                borderRadius: 22,
+                backgroundColor: COLORS.searchBackground,
+                justifyContent: 'center',
+                alignItems: 'center',
+              }}
             >
               <Ionicons name="arrow-back" size={24} color={COLORS.textPrimary} />
             </TouchableOpacity>
             
-            <View style={{
+            <Text style={{
+              fontSize: 20,
+              fontWeight: '600',
+              color: COLORS.textPrimary,
+              letterSpacing: 0.3,
               flex: 1,
+            }}>
+              New Chat
+            </Text>
+          </View>
+
+          <View style={{ paddingHorizontal: 20, paddingVertical: 16 }}>
+            <View style={{
               flexDirection: 'row',
               alignItems: 'center',
-              backgroundColor: COLORS.surface,
-              borderRadius: 12,
-              paddingHorizontal: 12,
-              paddingVertical: 8
+              backgroundColor: COLORS.searchBackground,
+              borderRadius: 16,
+              paddingHorizontal: 16,
+              paddingVertical: 12,
+              borderWidth: 1,
+              borderColor: COLORS.border,
             }}>
               <Ionicons name="search" size={20} color={COLORS.textSecondary} />
               <TextInput
                 style={{
                   flex: 1,
-                  marginLeft: 8,
+                  marginLeft: 12,
                   fontSize: 16,
                   color: COLORS.textPrimary,
-                  paddingVertical: 6
+                  paddingVertical: 4
                 }}
                 placeholder="Search users..."
                 placeholderTextColor={COLORS.textSecondary}
@@ -883,10 +944,15 @@ useEffect(() => {
                   }}
                   style={{
                     flexDirection: 'row',
-                    padding: 16,
+                    padding: 20,
                     alignItems: 'center',
                     borderBottomWidth: 1,
-                    borderBottomColor: COLORS.separator + '30'
+                    borderBottomColor: COLORS.separator,
+                    backgroundColor: COLORS.background,
+                    marginHorizontal: 4,
+                    marginVertical: 2,
+                    borderRadius: 12,
+                    minHeight: 80,
                   }}
                 >
                   <Image
@@ -896,26 +962,31 @@ useEffect(() => {
                         : { uri: DEFAULT_PROFILE }
                     }
                     style={{
-                      width: 50,
-                      height: 50,
-                      borderRadius: 25,
-                      backgroundColor: COLORS.surface
+                      width: 56,
+                      height: 56,
+                      borderRadius: 28,
+                      backgroundColor: COLORS.searchBackground,
+                      borderWidth: 1,
+                      borderColor: COLORS.border,
+                      marginRight: 16,
                     }}
                   />
-                  <View style={{ marginLeft: 12, flex: 1 }}>
-                    <Text style={{ 
-                      fontSize: 16, 
-                      fontWeight: '500',
-                      color: COLORS.textPrimary
+                  <View style={{ flex: 1 }}>
+                    <Text style={{
+                      fontSize: 17,
+                      fontWeight: '600',
+                      color: COLORS.textPrimary,
+                      letterSpacing: 0.3,
+                      marginBottom: 4,
                     }}>
-                      {item.fullName || 'Unkown Users'}
+                      {item.fullName || 'Unknown User'}
                     </Text>
                     {/* Display college name */}
                     {item.college && (
-                      <Text style={{ 
-                        fontSize: 14, 
+                      <Text style={{
+                        fontSize: 15,
                         color: COLORS.textSecondary,
-                        marginTop: 2 
+                        letterSpacing: 0.2,
                       }}>
                         @{item.college.name || 'No college information'}
                       </Text>
@@ -925,12 +996,28 @@ useEffect(() => {
               )}
               ListEmptyComponent={
                 searchQuery.length > 0 ? (
-                  <View style={{ padding: 20, alignItems: 'center' }}>
-                    <Text style={{ color: COLORS.textSecondary }}>No users found</Text>
+                  <View style={{ padding: 40, alignItems: 'center' }}>
+                    <Ionicons name="search-outline" size={48} color={COLORS.textTertiary} />
+                    <Text style={{ 
+                      color: COLORS.textSecondary, 
+                      fontSize: 16, 
+                      marginTop: 16,
+                      fontWeight: '500' 
+                    }}>
+                      No users found
+                    </Text>
                   </View>
                 ) : (
-                  <View style={{ padding: 20, alignItems: 'center' }}>
-                    <Text style={{ color: COLORS.textSecondary }}>Search for users to chat with</Text>
+                  <View style={{ padding: 40, alignItems: 'center' }}>
+                    <Ionicons name="people-outline" size={48} color={COLORS.textTertiary} />
+                    <Text style={{ 
+                      color: COLORS.textSecondary, 
+                      fontSize: 16, 
+                      marginTop: 16,
+                      fontWeight: '500' 
+                    }}>
+                      Search for users to chat with
+                    </Text>
                   </View>
                 )
               }

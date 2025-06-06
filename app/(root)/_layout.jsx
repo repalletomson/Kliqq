@@ -33,12 +33,12 @@ const Layout = () => {
           headerShown: false,
         }}
       />
-         <Stack.Screen
+         {/* <Stack.Screen
         name="[jobDetailView]" 
         options={{
           headerShown: false,
         }}
-      />
+      /> */}
           {/* <Stack.Screen
         name="drawer" 
         options={{

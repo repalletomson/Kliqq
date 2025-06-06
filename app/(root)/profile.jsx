@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { 
   View, 
   Text, 
@@ -10,30 +10,33 @@ import {
   RefreshControl,
   Modal,
   TextInput,
-  Animated,
   Platform,
-  StatusBar
+  StatusBar,
+  Dimensions,
+  FlatList
 } from 'react-native';
 import { collection, query, where, getDocs, orderBy, doc, getDoc, deleteDoc, updateDoc } from 'firebase/firestore';
 import { db, auth } from '../../config/firebaseConfig';
 import { useRouter } from 'expo-router';
 import { useAuth } from '../../context/authContext';
 import { MaterialIcons, Feather, Ionicons } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
-import { BlurView } from 'expo-blur';
 
-const HEADER_MAX_HEIGHT = 200; // Maximum height of the header
-const HEADER_MIN_HEIGHT = 100;  // Minimum height of the header when scrolled
-const HEADER_SCROLL_DISTANCE = HEADER_MAX_HEIGHT - HEADER_MIN_HEIGHT;
+const { width } = Dimensions.get('window');
+const ITEM_WIDTH = (width - 48) / 2; // 2 columns with spacing
 
-// Color palette
+// Consistent Color Palette - Black Theme with Purple Accents
 const COLORS = {
-  background: '#070606',
-  cardBg: '#171616',
-  textPrimary: '#FFFFFF',
-  textSecondary: '#B2B3B2',
-  accent: '#6366F1',
-  border: '#6C6C6D'
+  background: '#000000',
+  cardBg: '#000000',
+  text: '#FFFFFF',
+  textSecondary: '#E5E5E5',
+  textMuted: '#A1A1AA',
+  inputBg: '#1A1A1A',
+  accent: '#8B5CF6',
+  success: '#10B981',
+  danger: '#EF4444',
+  shadow: 'rgba(139, 92, 246, 0.15)',
+  border: 'rgba(255, 255, 255, 0.1)',
 };
 
 const Profile = () => {
@@ -49,26 +52,6 @@ const Profile = () => {
   const { loginOut } = useAuth();
   const router = useRouter();
   const currentUser = auth.currentUser;
-
-  // Animation for header scroll
-  const scrollY = useRef(new Animated.Value(0)).current;
-  const headerHeight = scrollY.interpolate({
-    inputRange: [0, HEADER_SCROLL_DISTANCE],
-    outputRange: [HEADER_MAX_HEIGHT, HEADER_MIN_HEIGHT],
-    extrapolate: 'clamp',
-  });
-
-  const headerImageOpacity = scrollY.interpolate({
-    inputRange: [0, HEADER_SCROLL_DISTANCE / 2, HEADER_SCROLL_DISTANCE],
-    outputRange: [1, 0.5, 0],
-    extrapolate: 'clamp',
-  });
-
-  const headerImageSize = scrollY.interpolate({
-    inputRange: [0, HEADER_SCROLL_DISTANCE],
-    outputRange: [80, 40],
-    extrapolate: 'clamp',
-  });
 
   // Load user data function with error handling
   const loadUserData = async () => {
@@ -156,6 +139,7 @@ const Profile = () => {
             try {
               await deleteDoc(doc(db, 'posts', postId));
               setUserPosts(prev => prev.filter(post => post.id !== postId));
+              setShowEditPostModal(false);
               Alert.alert('Success', 'Post deleted successfully');
             } catch (error) {
               console.error('Error deleting post:', error);
@@ -206,12 +190,61 @@ const Profile = () => {
     }
   }, [currentUser]);
 
+  // Render post item for grid
+  const renderPostItem = ({ item, index }) => (
+    <TouchableOpacity
+      style={{
+        width: ITEM_WIDTH,
+        height: ITEM_WIDTH,
+        marginBottom: 16,
+        marginRight: index % 2 === 0 ? 16 : 0,
+        borderRadius: 12,
+        overflow: 'hidden',
+        backgroundColor: COLORS.inputBg,
+      }}
+      onPress={() => {
+        setSelectedPost(item);
+        setEditedContent(item.content);
+        setShowEditPostModal(true);
+      }}
+    >
+      {item.mediaUrls && item.mediaUrls.length > 0 ? (
+        <Image 
+          source={{ uri: item.mediaUrls[0] }}
+          style={{ width: '100%', height: '100%' }}
+          resizeMode="cover"
+        />
+      ) : (
+        <View style={{
+          flex: 1,
+          padding: 12,
+          justifyContent: 'center',
+        }}>
+          <Text style={{
+            color: COLORS.text,
+            fontSize: 14,
+            lineHeight: 20,
+          }} numberOfLines={6}>
+            {item.content}
+          </Text>
+        </View>
+      )}
+    </TouchableOpacity>
+  );
+
   if (loading) {
     return (
       <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: COLORS.background }}>
         <StatusBar barStyle="light-content" backgroundColor={COLORS.background} />
         <ActivityIndicator size="large" color={COLORS.accent} />
-        <Text style={{ marginTop: 16, color: COLORS.textSecondary }}>Loading profile...</Text>
+        <Text style={{ 
+          marginTop: 16, 
+          color: COLORS.textSecondary,
+          fontSize: 16,
+          fontWeight: '500'
+        }}>
+          Loading profile...
+        </Text>
       </View>
     );
   }
@@ -220,28 +253,40 @@ const Profile = () => {
     <View style={{ flex: 1, backgroundColor: COLORS.background }}>
       <StatusBar barStyle="light-content" backgroundColor={COLORS.background} />
       
-      {/* Options button (top right) */}
-      <TouchableOpacity 
-        onPress={() => setShowOptionsModal(true)}
-        style={{ 
-          position: 'absolute', 
-          top: 40, 
-          right: 16, 
-          zIndex: 20,
-          padding: 8
-        }}
-      >
-        <Feather name="more-vertical" size={24} color={COLORS.textPrimary} />
-      </TouchableOpacity>
-      
-      {/* Scrollable Content */}
+      {/* Header */}
+      <View style={{
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        paddingTop: Platform.OS === 'ios' ? 50 : 40,
+        paddingHorizontal: 20,
+        paddingBottom: 16,
+      }}>
+        <Text style={{
+          fontSize: 24,
+          fontWeight: '800',
+          color: COLORS.text,
+        }}>
+          Profile
+        </Text>
+        <TouchableOpacity 
+          onPress={() => setShowOptionsModal(true)}
+          style={{
+            width: 44,
+            height: 44,
+            borderRadius: 22,
+            backgroundColor: COLORS.inputBg,
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}
+        >
+          <Ionicons name="ellipsis-horizontal" size={20} color={COLORS.text} />
+        </TouchableOpacity>
+      </View>
+
       <ScrollView
         style={{ flex: 1 }}
-        scrollEventThrottle={16}
-        onScroll={Animated.event(
-          [{ nativeEvent: { contentOffset: { y: scrollY } } }],
-          { useNativeDriver: false }
-        )}
+        showsVerticalScrollIndicator={false}
         refreshControl={
           <RefreshControl 
             refreshing={refreshing} 
@@ -251,147 +296,164 @@ const Profile = () => {
           />
         }
       >
-        {/* Header with centered profile image */}
-        <View style={{ 
-          paddingTop: 60, 
-          paddingBottom: 24, 
-          alignItems: 'center',
-          borderBottomWidth: 1,
-          borderBottomColor: COLORS.border
+        {/* User Info Section */}
+        <View style={{
+          paddingHorizontal: 20,
+          paddingBottom: 32,
         }}>
-          <Animated.Image
-            source={{ uri: userData?.profileImage || 'https://imgs.search.brave.com/SRTQLz_BmOq7xwzV7ls7bV62QzMZtDrGSacNS5G1d1A/rs:fit:500:0:0:0/g:ce/aHR0cHM6Ly9pY29u/cy52ZXJ5aWNvbi5j/b20vcG5nLzEyOC9t/aXNjZWxsYW5lb3Vz/LzNweC1saW5lYXIt/ZmlsbGV0LWNvbW1v/bi1pY29uL2RlZmF1/bHQtbWFsZS1hdmF0/YXItMS5wbmc' }}
-            style={{ 
-              width: headerImageSize, 
-              height: headerImageSize, 
-              borderRadius: 40,  // Half to make it circular
-              borderWidth: 2, 
-              borderColor: COLORS.accent,
-              opacity: headerImageOpacity
-            }}
-          />
-          
-          <Text style={{ 
-            fontSize: 22, 
-            fontWeight: 'bold', 
-            color: COLORS.textPrimary,
-            marginTop: 16
-          }}>
-            {userData?.fullName}
-          </Text>
-          
-          <Text style={{ 
-            color: COLORS.accent,
-            fontSize: 14,
-            marginTop: 2,
-            fontWeight:'bold'
-          }}>
-            @{userData?.displayName}
-          </Text>
-          
-          {/* Stats section */}
-          <View style={{ 
+          {/* Profile Picture and Edit Button Row */}
+          <View style={{
             flexDirection: 'row',
-            justifyContent: 'center',
-            marginTop: 20,
-            paddingHorizontal: 16,
-            width: '100%'
+            alignItems: 'flex-start',
+            justifyContent: 'space-between',
+            marginBottom: 16,
           }}>
-            <View style={{ 
-              alignItems: 'center',
-              paddingHorizontal: 20,
-              paddingVertical: 12,
-              backgroundColor: COLORS.cardBg,
-              borderRadius: 16
-            }}>
-              <Text style={{ color: COLORS.textPrimary, fontSize: 24, fontWeight: 'bold' }}>
-                {userPosts.length}
+            <Image
+              source={{ 
+                uri: userData?.profileImage || currentUser?.photoURL || 'https://cdn-icons-png.flaticon.com/512/149/149071.png'
+              }}
+              style={{ 
+                width: 80, 
+                height: 80, 
+                borderRadius: 40,
+                borderWidth: 2,
+                borderColor: COLORS.accent,
+              }}
+            />
+            
+            <TouchableOpacity
+              onPress={() => router.push('/(root)/editprofile')}
+              style={{
+                borderWidth: 1,
+                borderColor: COLORS.border,
+                borderRadius: 20,
+                paddingHorizontal: 16,
+                paddingVertical: 8,
+                backgroundColor: 'transparent',
+              }}
+            >
+              <Text style={{
+                color: COLORS.text,
+                fontSize: 14,
+                fontWeight: '600',
+              }}>
+                Edit Profile
               </Text>
-              <Text style={{ color: COLORS.textSecondary, fontSize: 14 }}>Posts</Text>
-            </View>
+            </TouchableOpacity>
+          </View>
+
+          {/* Name */}
+          <Text style={{
+            fontSize: 22,
+            fontWeight: '800',
+            color: COLORS.text,
+            marginBottom: 4,
+          }}>
+            {userData?.fullName || currentUser?.displayName || 'User'}
+          </Text>
+
+          {/* Username */}
+          <Text style={{
+            fontSize: 16,
+            color: COLORS.textMuted,
+            marginBottom: 12,
+          }}>
+            @{userData?.displayName || userData?.username || 'username'}
+          </Text>
+
+          {/* Bio */}
+          {userData?.bio && (
+            <Text style={{
+              fontSize: 16,
+              color: COLORS.textSecondary,
+              lineHeight: 22,
+              marginBottom: 16,
+            }}>
+              {userData.bio}
+            </Text>
+          )}
+
+          {/* Stats */}
+          <View style={{
+            flexDirection: 'row',
+            alignItems: 'center',
+            marginBottom: 16,
+          }}>
+            <Text style={{
+              color: COLORS.text,
+              fontSize: 16,
+              fontWeight: '700',
+              marginRight: 4,
+            }}>
+              {userPosts.length}
+            </Text>
+            <Text style={{
+              color: COLORS.textMuted,
+              fontSize: 16,
+            }}>
+              {userPosts.length === 1 ? 'post' : 'posts'}
+            </Text>
           </View>
         </View>
 
-        {/* Posts Section Header */}
-        <View style={{ 
-          paddingHorizontal: 16, 
-          paddingVertical: 16, 
-          flexDirection: 'row',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          borderBottomWidth: 1,
-          borderBottomColor: COLORS.border
-        }}>
-          <Text style={{ color: COLORS.textPrimary, fontSize: 18, fontWeight: 'bold' }}>Posts</Text>
-          <TouchableOpacity onPress={() => router.push('/(root)/createpost')}>
-            <Feather name="plus-circle" size={22} color={COLORS.accent} />
-          </TouchableOpacity>
-        </View>
-
-        {/* Posts List */}
-        <View style={{ padding: 8 }}>
+        {/* Posts Grid */}
+        <View style={{ paddingHorizontal: 20 }}>
           {userPosts.length === 0 ? (
-            <View style={{ 
-              padding: 40, 
-              alignItems: 'center', 
-              justifyContent: 'center' 
+            <View style={{
+              alignItems: 'center',
+              justifyContent: 'center',
+              paddingVertical: 60,
             }}>
-              <Feather name="file-text" size={48} color={COLORS.textSecondary} />
-              <Text style={{ 
-                color: COLORS.textSecondary, 
-                marginTop: 16, 
-                textAlign: 'center' 
+              <Ionicons name="grid-outline" size={64} color={COLORS.textMuted} />
+              <Text style={{
+                color: COLORS.textMuted,
+                fontSize: 18,
+                fontWeight: '600',
+                marginTop: 16,
+                marginBottom: 8,
               }}>
                 No posts yet
               </Text>
-            </View>
-          ) : (
-            userPosts.map(post => (
-              <View 
-                key={post.id} 
-                style={{ 
-                  backgroundColor: COLORS.cardBg, 
-                  borderRadius: 16, 
-                  marginBottom: 16, 
-                  overflow: 'hidden',
-                  borderWidth: 1,
-                  borderColor: COLORS.border
+              <Text style={{
+                color: COLORS.textMuted,
+                fontSize: 14,
+                textAlign: 'center',
+                marginBottom: 24,
+              }}>
+                Share your thoughts and experiences{'\n'}to start building your profile
+              </Text>
+              <TouchableOpacity
+                onPress={() => router.push('/(root)/(tabs)/home')}
+                style={{
+                  backgroundColor: COLORS.accent,
+                  paddingHorizontal: 24,
+                  paddingVertical: 12,
+                  borderRadius: 20,
                 }}
               >
-                {post.mediaUrl && (
-                  <Image 
-                    source={{ uri: post.mediaUrl }}
-                    style={{ width: '100%', height: 200 }}
-                    resizeMode="cover"
-                  />
-                )}
-                
-                <View style={{ padding: 16 }}>
-                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-                    <Text style={{ color: COLORS.textSecondary, fontSize: 12 }}>
-                      {new Date(post.createdAt?.toDate()).toLocaleDateString()}
-                    </Text>
-                    <TouchableOpacity 
-                      onPress={() => {
-                        setSelectedPost(post);
-                        setEditedContent(post.content);
-                        setShowEditPostModal(true);
-                      }}
-                    >
-                      <Feather name="more-horizontal" size={20} color={COLORS.textSecondary} />
-                    </TouchableOpacity>
-                  </View>
-                  
-                  <Text style={{ color: COLORS.textPrimary, fontSize: 16 }}>
-                    {post.content}
-                  </Text>
-                </View>
-              </View>
-            ))
+                <Text style={{
+                  color: '#FFFFFF',
+                  fontSize: 16,
+                  fontWeight: '700',
+                }}>
+                  Create Post
+                </Text>
+              </TouchableOpacity>
+            </View>
+          ) : (
+            <FlatList
+              data={userPosts}
+              renderItem={renderPostItem}
+              numColumns={2}
+              columnWrapperStyle={{ justifyContent: 'flex-start' }}
+              scrollEnabled={false}
+              showsVerticalScrollIndicator={false}
+              contentContainerStyle={{ paddingBottom: 40 }}
+            />
           )}
         </View>
       </ScrollView>
- 
+
       {/* Edit Post Modal */}
       <Modal
         visible={showEditPostModal}
@@ -399,18 +461,25 @@ const Profile = () => {
         animationType="fade"
         onRequestClose={() => setShowEditPostModal(false)}
       >
-        <BlurView
-          intensity={Platform.OS === 'ios' ? 50 : 100}
-          tint="dark"
-          style={{ flex: 1, justifyContent: 'flex-end' }}
-        >
+        <View style={{
+          flex: 1,
+          backgroundColor: 'rgba(0,0,0,0.8)',
+          justifyContent: 'flex-end',
+        }}>
           <View style={{ 
             backgroundColor: COLORS.cardBg, 
             borderTopLeftRadius: 24, 
             borderTopRightRadius: 24, 
-            padding: 24 
+            padding: 24,
+            borderWidth: 1,
+            borderColor: COLORS.border,
           }}>
-            <Text style={{ fontSize: 20, fontWeight: 'bold', color: COLORS.textPrimary, marginBottom: 16 }}>
+            <Text style={{ 
+              fontSize: 20, 
+              fontWeight: '800', 
+              color: COLORS.text, 
+              marginBottom: 20 
+            }}>
               Edit Post
             </Text>
             
@@ -419,40 +488,54 @@ const Profile = () => {
               onChangeText={setEditedContent}
               multiline
               style={{ 
-                backgroundColor: COLORS.background, 
-                borderRadius: 12, 
+                backgroundColor: COLORS.inputBg, 
+                borderRadius: 16, 
                 padding: 16, 
-                minHeight: 100, 
-                marginBottom: 16, 
-                color: COLORS.textPrimary 
+                minHeight: 120, 
+                marginBottom: 20, 
+                color: COLORS.text,
+                fontSize: 16,
+                textAlignVertical: 'top',
               }}
               placeholder="Edit your post..."
-              placeholderTextColor={COLORS.textSecondary}
+              placeholderTextColor={COLORS.textMuted}
             />
             
-            <View style={{ flexDirection: 'row', gap: 16 }}>
+            <View style={{ flexDirection: 'row', gap: 12, marginBottom: 12 }}>
               <TouchableOpacity
                 onPress={() => setShowEditPostModal(false)}
                 style={{ 
                   flex: 1, 
-                  padding: 12, 
-                  borderRadius: 12, 
-                  backgroundColor: COLORS.border 
+                  padding: 16, 
+                  borderRadius: 16, 
+                  backgroundColor: COLORS.inputBg,
+                  alignItems: 'center',
                 }}
               >
-                <Text style={{ textAlign: 'center', fontWeight: '500', color: COLORS.textPrimary }}>Cancel</Text>
+                <Text style={{ 
+                  fontWeight: '600', 
+                  color: COLORS.text,
+                  fontSize: 16,
+                }}>
+                  Cancel
+                </Text>
               </TouchableOpacity>
               
               <TouchableOpacity
                 onPress={handleEditPost}
                 style={{ 
                   flex: 1, 
-                  padding: 12, 
-                  borderRadius: 12, 
-                  backgroundColor: COLORS.accent 
+                  padding: 16, 
+                  borderRadius: 16, 
+                  backgroundColor: COLORS.accent,
+                  alignItems: 'center',
                 }}
               >
-                <Text style={{ textAlign: 'center', fontWeight: '500', color: COLORS.textPrimary }}>
+                <Text style={{ 
+                  fontWeight: '700', 
+                  color: '#FFFFFF',
+                  fontSize: 16,
+                }}>
                   Save Changes
                 </Text>
               </TouchableOpacity>
@@ -461,18 +544,24 @@ const Profile = () => {
             <TouchableOpacity
               onPress={() => handleDeletePost(selectedPost?.id)}
               style={{ 
-                marginTop: 16, 
-                padding: 12, 
-                borderRadius: 12, 
-                backgroundColor: 'rgba(239, 68, 68, 0.2)' 
+                padding: 16, 
+                borderRadius: 16, 
+                backgroundColor: 'rgba(239, 68, 68, 0.1)',
+                alignItems: 'center',
+                borderWidth: 1,
+                borderColor: COLORS.danger,
               }}
             >
-              <Text style={{ textAlign: 'center', fontWeight: '500', color: '#EF4444' }}>
+              <Text style={{ 
+                fontWeight: '600', 
+                color: COLORS.danger,
+                fontSize: 16,
+              }}>
                 Delete Post
               </Text>
             </TouchableOpacity>
           </View>
-        </BlurView>
+        </View>
       </Modal>
 
       {/* Options Modal */}
@@ -482,18 +571,25 @@ const Profile = () => {
         animationType="slide"
         onRequestClose={() => setShowOptionsModal(false)}
       >
-        <BlurView
-          intensity={Platform.OS === 'ios' ? 50 : 100}
-          tint="dark"
-          style={{ flex: 1, justifyContent: 'flex-end' }}
-        >
+        <View style={{
+          flex: 1,
+          backgroundColor: 'rgba(0,0,0,0.8)',
+          justifyContent: 'flex-end',
+        }}>
           <View style={{ 
             backgroundColor: COLORS.cardBg, 
             borderTopLeftRadius: 24, 
             borderTopRightRadius: 24, 
-            padding: 24 
+            padding: 24,
+            borderWidth: 1,
+            borderColor: COLORS.border,
           }}>
-            <Text style={{ fontSize: 20, fontWeight: 'bold', color: COLORS.textPrimary, marginBottom: 24 }}>
+            <Text style={{ 
+              fontSize: 20, 
+              fontWeight: '800', 
+              color: COLORS.text, 
+              marginBottom: 24 
+            }}>
               Profile Options
             </Text>
             
@@ -501,7 +597,7 @@ const Profile = () => {
               style={{ 
                 flexDirection: 'row', 
                 alignItems: 'center', 
-                gap: 12, 
+                gap: 16, 
                 paddingVertical: 16, 
                 borderBottomWidth: 1, 
                 borderBottomColor: COLORS.border 
@@ -512,14 +608,16 @@ const Profile = () => {
               }}
             >
               <MaterialIcons name="person-outline" size={24} color={COLORS.accent} />
-              <Text style={{ color: COLORS.textPrimary, fontSize: 16 }}>Edit Profile</Text>
+              <Text style={{ color: COLORS.text, fontSize: 16, fontWeight: '500' }}>
+                Edit Profile
+              </Text>
             </TouchableOpacity>
 
             <TouchableOpacity 
               style={{ 
                 flexDirection: 'row', 
                 alignItems: 'center', 
-                gap: 12, 
+                gap: 16, 
                 paddingVertical: 16, 
                 borderBottomWidth: 1, 
                 borderBottomColor: COLORS.border 
@@ -530,14 +628,16 @@ const Profile = () => {
               }}
             >
               <Ionicons name="settings-outline" size={24} color={COLORS.accent} />
-              <Text style={{ color: COLORS.textPrimary, fontSize: 16 }}>Settings</Text>
+              <Text style={{ color: COLORS.text, fontSize: 16, fontWeight: '500' }}>
+                Settings
+              </Text>
             </TouchableOpacity>
 
             <TouchableOpacity 
               style={{ 
                 flexDirection: 'row', 
                 alignItems: 'center', 
-                gap: 12, 
+                gap: 16, 
                 paddingVertical: 16 
               }}
               onPress={() => {
@@ -545,11 +645,13 @@ const Profile = () => {
                 handleLogout();
               }}
             >
-              <MaterialIcons name="logout" size={24} color="#EF4444" />
-              <Text style={{ color: '#EF4444', fontSize: 16 }}>Logout</Text>
+              <MaterialIcons name="logout" size={24} color={COLORS.danger} />
+              <Text style={{ color: COLORS.danger, fontSize: 16, fontWeight: '500' }}>
+                Logout
+              </Text>
             </TouchableOpacity>
           </View>
-        </BlurView>
+        </View>
       </Modal>
     </View>
   );

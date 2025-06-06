@@ -1,5 +1,3 @@
-
-
 import React, { useState, useRef, useEffect, useCallback } from "react";
 import {
   View,
@@ -13,11 +11,10 @@ import {
   StyleSheet,
   Animated,
   Keyboard,
-  Modal,
   ActivityIndicator,
+  Modal,
 } from "react-native";
-import { MaterialIcons } from "@expo/vector-icons";
-import * as ImagePicker from "expo-image-picker";
+import { MaterialIcons, Ionicons } from "@expo/vector-icons";
 import {
   collection,
   addDoc,
@@ -30,32 +27,37 @@ import {
   setDoc,
   increment,
 } from "firebase/firestore";
-import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
-import { db, auth, storage } from "../config/firebaseConfig";
+import { db, auth } from "../config/firebaseConfig";
 import { AES, enc } from "react-native-crypto-js";
 
+// Modern black theme colors
 const COLORS = {
-  background: "#070606",
-  surface: "#171616",
+  background: "#000000",
+  surface: "#111111",
   textPrimary: "#FFFFFF",
-  textSecondary: "#B2B3B2",
-  accent: "#6C6C6D",
-  separator: "#1E1E1E",
-  buttonBackground: "#1A1A1A",
-  primary: "#007AFF",
-  border: "#333333",
-  green: "#00FF00",
+  textSecondary: "#A1A1AA",
+  accent: "#3B82F6",
+  separator: "#27272A",
+  primary: "#3B82F6",
+  border: "#27272A",
+  danger: "#EF4444",
+  success: "#10B981",
 };
 
-const SECRET_KEY = "kX7p9mZ3qW8rT2vL4cY6nJ0bF5gH1jD8eK2wM9xP"; // Replace with your generated key
-const DisappearingMessagesConfirmModal = ({ visible, onClose, onConfirm }) => {
+// Consistent secret key
+const SECRET_KEY = "kliq-secure-messaging-2024";
+
+const DisappearingMessagesModal = ({ visible, onClose, onConfirm }) => {
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
       <View style={styles.confirmModalOverlay}>
         <View style={styles.confirmModalContent}>
-          <Text style={styles.confirmModalTitle}>Enable Disappearing Messages?</Text>
+          <View style={styles.confirmModalHeader}>
+            <MaterialIcons name="timer" size={24} color={COLORS.accent} />
+            <Text style={styles.confirmModalTitle}>Disappearing Messages</Text>
+          </View>
           <Text style={styles.confirmModalText}>
-            Messages in this chat will disappear after 24 hours. This cannot be undone.
+            Messages will automatically disappear after 24 hours for everyone in this chat.
           </Text>
           <View style={styles.confirmModalButtons}>
             <TouchableOpacity onPress={onClose} style={styles.confirmModalCancel}>
@@ -78,28 +80,52 @@ export const MessageInput = React.memo(
     isBlocked,
     replyingTo,
     onCancelReply,
-    disappearingMessages,
     onSendMessage,
     handleUnblockUser,
     scrollToBottom,
+    disappearingMessages,
   }) => {
     const [message, setMessage] = useState("");
-    const [imageOptionsVisible, setImageOptionsVisible] = useState(false);
-    const [confirmModalVisible, setConfirmModalVisible] = useState(false);
     const [sending, setSending] = useState(false);
-    const [inputHeight, setInputHeight] = useState(35);
+    const [inputHeight, setInputHeight] = useState(36);
     const [isTyping, setIsTyping] = useState(false);
+    const [showDisappearingModal, setShowDisappearingModal] = useState(false);
+    const [keyboardHeight, setKeyboardHeight] = useState(0);
     const inputRef = useRef(null);
     const typingTimeoutRef = useRef(null);
     const isMounted = useRef(true);
     const scaleAnim = useRef(new Animated.Value(1)).current;
+    const translateY = useRef(new Animated.Value(0)).current;
 
     useEffect(() => {
-      const keyboardDidShowListener = Keyboard.addListener("keyboardDidShow", () => {
+      const keyboardDidShowListener = Keyboard.addListener("keyboardDidShow", (event) => {
+        setKeyboardHeight(event.endCoordinates.height);
+        if (Platform.OS === 'ios') {
+          Animated.timing(translateY, {
+            toValue: -event.endCoordinates.height + 34, // 34 is safe area bottom
+            duration: 250,
+            useNativeDriver: true,
+          }).start();
+        }
         if (scrollToBottom) setTimeout(scrollToBottom, 100);
       });
-      return () => keyboardDidShowListener.remove();
-    }, [scrollToBottom]);
+      
+      const keyboardDidHideListener = Keyboard.addListener("keyboardDidHide", () => {
+        setKeyboardHeight(0);
+        if (Platform.OS === 'ios') {
+          Animated.timing(translateY, {
+            toValue: 0,
+            duration: 250,
+            useNativeDriver: true,
+          }).start();
+        }
+      });
+
+      return () => {
+        keyboardDidShowListener.remove();
+        keyboardDidHideListener.remove();
+      };
+    }, [scrollToBottom, translateY]);
 
     useEffect(() => {
       return () => {
@@ -109,33 +135,53 @@ export const MessageInput = React.memo(
     }, []);
 
     useEffect(() => {
-      if (replyingTo && inputRef.current) inputRef.current.focus();
+      if (replyingTo && inputRef.current) {
+        inputRef.current.focus();
+      }
     }, [replyingTo]);
 
     const animateSendButton = () => {
-      Animated.spring(scaleAnim, { toValue: 1.2, friction: 3, tension: 40, useNativeDriver: true }).start(() => {
-        Animated.spring(scaleAnim, { toValue: 1, friction: 3, tension: 40, useNativeDriver: true }).start();
-      });
+      Animated.sequence([
+        Animated.spring(scaleAnim, { 
+          toValue: 1.1, 
+          duration: 150, 
+          useNativeDriver: true 
+        }),
+        Animated.spring(scaleAnim, { 
+          toValue: 1, 
+          duration: 150, 
+          useNativeDriver: true 
+        })
+      ]).start();
     };
 
     const resetInputField = () => {
-      setInputHeight(35);
-      if (inputRef.current) inputRef.current.clear();
+      setInputHeight(36);
+      setMessage("");
     };
 
+    // Typing indicator logic
     useEffect(() => {
       const chatRef = doc(db, "chats", chatId);
       const updateTypingStatus = async (isTyping) => {
         try {
           const chatDoc = await getDoc(chatRef);
           if (!auth.currentUser) return;
-          if (!chatDoc.exists()) await setDoc(chatRef, { typingUsers: [] });
-          else if (!chatDoc.data()?.typingUsers) await updateDoc(chatRef, { typingUsers: [] });
+          
+          if (!chatDoc.exists()) {
+            await setDoc(chatRef, { typingUsers: [] });
+          } else if (!chatDoc.data()?.typingUsers) {
+            await updateDoc(chatRef, { typingUsers: [] });
+          }
 
           if (isTyping) {
-            await updateDoc(chatRef, { typingUsers: arrayUnion(auth.currentUser.uid) });
+            await updateDoc(chatRef, { 
+              typingUsers: arrayUnion(auth.currentUser.uid) 
+            });
           } else {
-            await updateDoc(chatRef, { typingUsers: arrayRemove(auth.currentUser.uid) });
+            await updateDoc(chatRef, { 
+              typingUsers: arrayRemove(auth.currentUser.uid) 
+            });
           }
         } catch (error) {
           console.error("Error updating typing status:", error);
@@ -145,6 +191,7 @@ export const MessageInput = React.memo(
       if (message.length > 0) {
         setIsTyping(true);
         updateTypingStatus(true);
+        
         if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
         typingTimeoutRef.current = setTimeout(() => {
           setIsTyping(false);
@@ -161,6 +208,35 @@ export const MessageInput = React.memo(
       };
     }, [message, chatId]);
 
+    const handleToggleDisappearingMessages = async () => {
+      if (!disappearingMessages) {
+        setShowDisappearingModal(true);
+      } else {
+        try {
+          await updateDoc(doc(db, "chats", chatId), {
+            disappearingMessages: false,
+            disappearingMessagesUpdatedAt: serverTimestamp(),
+          });
+        } catch (error) {
+          console.error("Error disabling disappearing messages:", error);
+          Alert.alert("Error", "Failed to disable disappearing messages");
+        }
+      }
+    };
+
+    const enableDisappearingMessages = async () => {
+      try {
+        await updateDoc(doc(db, "chats", chatId), {
+          disappearingMessages: true,
+          disappearingMessagesUpdatedAt: serverTimestamp(),
+        });
+        setShowDisappearingModal(false);
+      } catch (error) {
+        console.error("Error enabling disappearing messages:", error);
+        Alert.alert("Error", "Failed to enable disappearing messages");
+      }
+    };
+
     const handleSendMessage = useCallback(async () => {
       if (sending || message.trim() === "" || !isMounted.current) return;
 
@@ -171,7 +247,7 @@ export const MessageInput = React.memo(
         const messageContent = message.trim();
         const encryptedMessage = AES.encrypt(messageContent, SECRET_KEY).toString();
 
-        setMessage("");
+        // Reset input immediately for better UX
         resetInputField();
 
         const now = serverTimestamp();
@@ -181,6 +257,7 @@ export const MessageInput = React.memo(
           text: encryptedMessage,
           sender: auth.currentUser.uid,
           name: auth.currentUser.displayName || "User",
+          userAvatar: auth.currentUser.photoURL || null,
           timestamp: now,
           type: "text",
           reactions: {},
@@ -190,17 +267,21 @@ export const MessageInput = React.memo(
           ...(replyingTo && {
             replyTo: {
               id: replyingTo.id,
-              text: replyingTo.type === "text" ? AES.encrypt(replyingTo.text, SECRET_KEY).toString() : replyingTo.text,
+              text: replyingTo.text,
               sender: replyingTo.sender,
               type: replyingTo.type,
               name: replyingTo.name,
             },
           }),
-          ...(disappearingMessages && { expiresAt, isDisappearing: true }),
+          ...(disappearingMessages && { 
+            expiresAt, 
+            isDisappearing: true 
+          }),
         };
 
         const docRef = await addDoc(collection(db, "chats", chatId, "messages"), messageData);
 
+        // Update chat document
         await updateDoc(doc(db, "chats", chatId), {
           lastMessage: encryptedMessage,
           lastMessageTime: now,
@@ -208,7 +289,7 @@ export const MessageInput = React.memo(
           ...(replyingTo && {
             lastMessageReplyTo: {
               id: replyingTo.id,
-              text: replyingTo.type === "text" ? AES.encrypt(replyingTo.text, SECRET_KEY).toString() : replyingTo.text,
+              text: replyingTo.text,
               sender: replyingTo.sender,
               type: replyingTo.type,
             },
@@ -216,6 +297,7 @@ export const MessageInput = React.memo(
           ...(disappearingMessages && { lastMessageExpiresAt: expiresAt }),
         });
 
+        // Update unread count
         const unreadCountRef = doc(db, "unreadCounts", recipientId, "senders", auth.currentUser.uid);
         const unreadCountDoc = await getDoc(unreadCountRef);
 
@@ -239,286 +321,336 @@ export const MessageInput = React.memo(
         onSendMessage?.(docRef.id);
         onCancelReply?.();
 
-        // Keep keyboard open
+        // Keep keyboard open and focus on input
         setTimeout(() => {
-          if (inputRef.current) inputRef.current.focus();
-        }, 100);
+          if (inputRef.current && isMounted.current) {
+            inputRef.current.focus();
+          }
+        }, 50);
+
       } catch (error) {
         console.error("Send message error:", error);
-        if (isMounted.current) Alert.alert("Error", "Failed to send message");
+        if (isMounted.current) {
+          Alert.alert("Error", "Failed to send message");
+          setMessage(messageContent); // Restore message on error
+        }
       } finally {
         setSending(false);
       }
     }, [chatId, message, sending, replyingTo, disappearingMessages, scrollToBottom, onSendMessage, onCancelReply]);
 
-    const handleImageUpload = useCallback(
-      async (type, isViewOnce = false) => {
-        if (!isMounted.current) return;
-
-        try {
-          const { status } = await (type === "gallery"
-            ? ImagePicker.requestMediaLibraryPermissionsAsync()
-            : ImagePicker.requestCameraPermissionsAsync());
-
-        if (!isMounted.current) return;
-        
-        if (status !== "granted") {
-            Alert.alert("Permission Required", `Please allow access to your ${type === "gallery" ? "gallery" : "camera"}`);
-            return;
-          }
-
-          const result = await (type === "gallery"
-            ? ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, allowsEditing: true, quality: 0.8 })
-            : ImagePicker.launchCameraAsync({ allowsEditing: true, quality: 0.8 }));
-
-        if (!isMounted.current) return;
-
-        if (!result.canceled && result.assets?.[0]?.uri) {
-            setSending(true);
-            const uri = result.assets[0].uri;
-            const response = await fetch(uri);
-            const blob = await response.blob();
-            const storageRef = ref(storage, `chats/${chatId}/${Date.now()}`);
-            const snapshot = await uploadBytes(storageRef, blob);
-            const downloadURL = await getDownloadURL(snapshot.ref);
-
-            await addDoc(collection(db, "chats", chatId, "messages"), {
-              type: "image",
-              fileUrl: downloadURL,
-              sender: auth.currentUser.uid,
-              timestamp: serverTimestamp(),
-              reactions: {},
-              status: "sent",
-              readBy: { [auth.currentUser.uid]: true },
-              unreadBy: [recipientId],
-              isViewOnce,
-              isDisappearing: disappearingMessages,
-              viewedBy: [],
-              ...(disappearingMessages && { expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000) }),
-              ...(replyingTo && {
-                replyTo: {
-                  id: replyingTo.id,
-                  text: replyingTo.type === "text" ? AES.encrypt(replyingTo.text, SECRET_KEY).toString() : replyingTo.text,
-                  sender: replyingTo.sender,
-                  type: replyingTo.type,
-                  name: replyingTo.name,
-                },
-              }),
-            });
-
-            await updateDoc(doc(db, "chats", chatId), {
-              lastMessage: "📷 Image",
-              lastMessageTime: serverTimestamp(),
-              disappearingMessages,
-              ...(disappearingMessages && { lastMessageExpiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000) }),
-              ...(replyingTo && {
-                lastMessageReplyTo: {
-                  id: replyingTo.id,
-                  text: replyingTo.type === "text" ? AES.encrypt(replyingTo.text, SECRET_KEY).toString() : replyingTo.text,
-                  sender: replyingTo.sender,
-                  type: replyingTo.type,
-                },
-              }),
-            });
-
-            const unreadCountRef = doc(db, "unreadCounts", recipientId, "senders", auth.currentUser.uid);
-            const unreadCountDoc = await getDoc(unreadCountRef);
-
-            if (unreadCountDoc.exists()) {
-              await updateDoc(unreadCountRef, {
-                count: increment(1),
-                lastMessage: "📷 Image",
-                lastMessageTime: serverTimestamp(),
-                chatId,
-              });
-            } else {
-              await setDoc(unreadCountRef, {
-                count: 1,
-                lastMessage: "📷 Image",
-                lastMessageTime: serverTimestamp(),
-                chatId,
-              });
-            }
-
-            if (scrollToBottom) setTimeout(scrollToBottom, 100);
-            if (isMounted.current) {
-              onSendMessage?.();
-              onCancelReply?.();
-            }
-          }
-        } catch (error) {
-          console.error("Image upload error:", error);
-          if (isMounted.current) Alert.alert("Error", "Failed to upload image");
-        } finally {
-          if (isMounted.current) {
-            setImageOptionsVisible(false);
-            setSending(false);
-          }
-        }
-      },
-      [chatId, onSendMessage, disappearingMessages, replyingTo, scrollToBottom]
-    );
-
-    const handleToggleDisappearingMessages = () => {
-      if (!disappearingMessages) setConfirmModalVisible(true);
-      else toggleDisappearingMessages();
-    };
-
-    const toggleDisappearingMessages = async () => {
-      try {
-        await updateDoc(doc(db, "chats", chatId), {
-          disappearingMessages: !disappearingMessages,
-          disappearingMessagesUpdatedAt: serverTimestamp(),
-        });
-        setConfirmModalVisible(false);
-      } catch (error) {
-        console.error("Error toggling disappearing messages:", error);
-        Alert.alert("Error", "Failed to update disappearing messages settings");
-      }
-    };
-
     const handleContentSizeChange = (event) => {
       const { height } = event.nativeEvent.contentSize;
-      setInputHeight(Math.min(100, Math.max(35, height)));
+      setInputHeight(Math.min(100, Math.max(36, height + 6)));
     };
 
+    const canSend = message.trim().length > 0 && !sending;
+
     return (
-      <KeyboardAvoidingView
-        behavior={Platform.OS === "ios" ? "padding" : "height"}
-        keyboardVerticalOffset={Platform.OS === "ios" ? 90 : 0}
-        style={styles.keyboardAvoidingView}
-      >
-        <SafeAreaView style={styles.container} edges={["bottom"]}>
-          {replyingTo && (
-            <View style={styles.replyContainer}>
-              <View style={styles.replyContent}>
-                <Text style={styles.replyLabel}>
-                  Replying to {replyingTo.sender === auth.currentUser.uid ? "yourself" : replyingTo.name}
-                </Text>
-                <Text style={styles.replyText} numberOfLines={1}>
-                  {replyingTo.type === "text" ? AES.decrypt(replyingTo.text, SECRET_KEY).toString(enc.Utf8) : (replyingTo.type === "image" ? "📷 Image" : "Message")}
-                </Text>
-              </View>
-              <TouchableOpacity onPress={onCancelReply} style={styles.replyCloseButton}>
-                <MaterialIcons name="close" size={20} color={COLORS.textSecondary} />
-              </TouchableOpacity>
-            </View>
-          )}
-          {isBlocked ? (
-            <View style={styles.blockedContainer}>
-              <Text style={styles.blockedText}>You have blocked this user.</Text>
-              <TouchableOpacity onPress={handleUnblockUser} style={styles.unblockButton}>
-                <Text style={styles.unblockButtonText}>Unblock</Text>
-              </TouchableOpacity>
-            </View>
-          ) : (
-            <View style={styles.inputContainer}>
-              <TouchableOpacity onPress={() => setImageOptionsVisible(true)} style={styles.attachButton} disabled={sending}>
-                <MaterialIcons name="attach-file" size={24} color={sending ? COLORS.accent : COLORS.textSecondary} />
-              </TouchableOpacity>
-              <View style={styles.textInputContainer}>
-                <TextInput
-                  ref={inputRef}
-                  value={message}
-                  onChangeText={setMessage}
-                  placeholder="Message"
-                  placeholderTextColor={COLORS.textSecondary}
-                  multiline
-                  style={[styles.textInput, { height: inputHeight }]}
-                  onContentSizeChange={handleContentSizeChange}
-                  editable={!sending}
-                  blurOnSubmit={false}
-                />
-                <View style={styles.inputActions}>
-                  <TouchableOpacity
-                    onPress={handleToggleDisappearingMessages}
-                    style={[styles.disappearingButton, disappearingMessages && styles.disappearingButtonActive]}
-                  >
-                    <MaterialIcons name="timer" size={20} color={disappearingMessages ? COLORS.green : COLORS.textSecondary} />
+      <>
+        <Animated.View
+          style={[
+            styles.floatingContainer,
+            Platform.OS === 'ios' && { transform: [{ translateY }] }
+          ]}
+        >
+          <KeyboardAvoidingView
+            behavior={Platform.OS === "ios" ? "padding" : "height"}
+            keyboardVerticalOffset={0}
+            style={styles.keyboardAvoidingView}
+          >
+            <SafeAreaView style={styles.container} edges={["bottom"]}>
+              {/* Reply indicator */}
+              {replyingTo && (
+                <View style={styles.replyContainer}>
+                  <View style={styles.replyContent}>
+                    <Text style={styles.replyLabel}>
+                      Replying to {replyingTo.sender === auth.currentUser.uid ? "yourself" : replyingTo.name}
+                    </Text>
+                    <Text style={styles.replyText} numberOfLines={1}>
+                      {replyingTo.type === "text" 
+                        ? AES.decrypt(replyingTo.text, SECRET_KEY).toString(enc.Utf8) 
+                        : "Message"}
+                    </Text>
+                  </View>
+                  <TouchableOpacity onPress={onCancelReply} style={styles.replyCloseButton}>
+                    <MaterialIcons name="close" size={20} color={COLORS.textSecondary} />
                   </TouchableOpacity>
                 </View>
-              </View>
-              <Animated.View style={{ transform: [{ scale: scaleAnim }] }}>
-                <TouchableOpacity
-                  onPress={handleSendMessage}
-                  disabled={sending || message.trim() === ""}
-                  style={[styles.sendButton, { backgroundColor: sending || message.trim() === "" ? COLORS.accent : COLORS.green }]}
-                >
-                  {sending ? (
-                    <ActivityIndicator size="small" color={COLORS.textPrimary} />
-                  ) : (
-                    <MaterialIcons name="send" size={20} color={COLORS.textPrimary} />
-                  )}
-                </TouchableOpacity>
-              </Animated.View>
-            </View>
-          )}
-          <Modal visible={imageOptionsVisible} transparent animationType="slide" onRequestClose={() => setImageOptionsVisible(false)}>
-            <View style={styles.imageOptionsOverlay}>
-              <View style={styles.imageOptionsContent}>
-                <TouchableOpacity onPress={() => handleImageUpload("gallery")} style={styles.imageOptionButton}>
-                  <MaterialIcons name="photo" size={24} color={COLORS.textPrimary} />
-                  <Text style={styles.imageOptionText}>Gallery</Text>
-                </TouchableOpacity>
-                <TouchableOpacity onPress={() => handleImageUpload("camera")} style={styles.imageOptionButton}>
-                  <MaterialIcons name="camera-alt" size={24} color={COLORS.textPrimary} />
-                  <Text style={styles.imageOptionText}>Camera</Text>
-                </TouchableOpacity>
-                <TouchableOpacity onPress={() => handleImageUpload("gallery", true)} style={styles.imageOptionButton}>
-                  <MaterialIcons name="visibility-off" size={24} color={COLORS.textPrimary} />
-                  <Text style={styles.imageOptionText}>View Once</Text>
-                </TouchableOpacity>
-                <TouchableOpacity onPress={() => setImageOptionsVisible(false)} style={styles.imageOptionButton}>
-                  <MaterialIcons name="close" size={24} color={COLORS.textPrimary} />
-                  <Text style={styles.imageOptionText}>Cancel</Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-          </Modal>
-          <DisappearingMessagesConfirmModal
-            visible={confirmModalVisible}
-            onClose={() => setConfirmModalVisible(false)}
-            onConfirm={toggleDisappearingMessages}
-          />
-        </SafeAreaView>
-      </KeyboardAvoidingView>
+              )}
+
+              {/* Blocked user message */}
+              {isBlocked ? (
+                <View style={styles.blockedContainer}>
+                  <Text style={styles.blockedText}>You have blocked this user.</Text>
+                  <TouchableOpacity onPress={handleUnblockUser} style={styles.unblockButton}>
+                    <Text style={styles.unblockButtonText}>Unblock</Text>
+                  </TouchableOpacity>
+                </View>
+              ) : (
+                <View style={styles.inputContainer}>
+                  {/* Text input container */}
+                  <View style={styles.textInputContainer}>
+                    <TextInput
+                      ref={inputRef}
+                      value={message}
+                      onChangeText={setMessage}
+                      placeholder="Message"
+                      placeholderTextColor={COLORS.textSecondary}
+                      multiline
+                      style={[styles.textInput, { height: inputHeight }]}
+                      onContentSizeChange={handleContentSizeChange}
+                      editable={!sending}
+                      blurOnSubmit={false}
+                      onSubmitEditing={handleSendMessage}
+                      returnKeyType="send"
+                    />
+                    
+                    {/* Disappearing messages toggle */}
+                    {message.length === 0 && (
+                      <TouchableOpacity
+                        onPress={handleToggleDisappearingMessages}
+                        style={[
+                          styles.disappearingButton,
+                          { 
+                            backgroundColor: disappearingMessages ? COLORS.accent : "transparent",
+                            opacity: disappearingMessages ? 1 : 0.6,
+                          }
+                        ]}
+                      >
+                        <MaterialIcons 
+                          name="schedule" 
+                          size={16} 
+                          color={disappearingMessages ? "#FFFFFF" : COLORS.textSecondary} 
+                        />
+                      </TouchableOpacity>
+                    )}
+                  </View>
+
+                  {/* Send button */}
+                  <Animated.View style={{ transform: [{ scale: scaleAnim }] }}>
+                    <TouchableOpacity
+                      onPress={handleSendMessage}
+                      disabled={!canSend}
+                      style={[
+                        styles.sendButton,
+                        { 
+                          backgroundColor: canSend ? COLORS.primary : COLORS.separator,
+                        }
+                      ]}
+                    >
+                      {sending ? (
+                        <ActivityIndicator size="small" color={COLORS.textPrimary} />
+                      ) : (
+                        <MaterialIcons 
+                          name={canSend ? "send" : "send"} 
+                          size={16} 
+                          color={canSend ? "#FFFFFF" : COLORS.textSecondary} 
+                        />
+                      )}
+                    </TouchableOpacity>
+                  </Animated.View>
+                </View>
+              )}
+            </SafeAreaView>
+          </KeyboardAvoidingView>
+        </Animated.View>
+
+        {/* Disappearing Messages Modal */}
+        <DisappearingMessagesModal
+          visible={showDisappearingModal}
+          onClose={() => setShowDisappearingModal(false)}
+          onConfirm={enableDisappearingMessages}
+        />
+      </>
     );
   }
 );
 
 const styles = StyleSheet.create({
-  keyboardAvoidingView: { backgroundColor: COLORS.background },
-  container: { backgroundColor: COLORS.background, borderTopWidth: 1, borderTopColor: COLORS.separator },
-  replyContainer: { flexDirection: "row", alignItems: "center", backgroundColor: COLORS.surface, padding: 8, borderRadius: 8, marginHorizontal: 16, marginBottom: 8 },
-  replyContent: { flex: 1 },
-  replyLabel: { fontSize: 14, color: COLORS.textSecondary },
-  replyText: { fontSize: 14, color: COLORS.textPrimary, marginTop: 2 },
-  replyCloseButton: { padding: 8 },
-  blockedContainer: { padding: 16, backgroundColor: COLORS.background, borderTopWidth: 1, borderTopColor: COLORS.separator, alignItems: "center" },
-  blockedText: { fontSize: 16, color: COLORS.textSecondary, textAlign: "center", marginBottom: 8 },
-  unblockButton: { padding: 12, backgroundColor: COLORS.primary, borderRadius: 8, alignItems: "center" },
-  unblockButtonText: { fontSize: 16, fontWeight: "500", color: COLORS.textPrimary },
-  inputContainer: { flexDirection: "row", alignItems: "flex-end", paddingHorizontal: 16, paddingVertical: 4, backgroundColor: COLORS.background },
-  attachButton: { padding: 8, alignSelf: "center" },
-  textInputContainer: { flex: 1, flexDirection: "row", alignItems: "center", backgroundColor: COLORS.surface, borderRadius: 20, paddingHorizontal: 12, paddingVertical: 4 },
-  textInput: { flex: 1, fontSize: 16, color: COLORS.textPrimary, paddingVertical: Platform.OS === "ios" ? 8 : 4, minHeight: 35, maxHeight: 100 },
-  inputActions: { flexDirection: "row", alignItems: "center" },
-  disappearingButton: { padding: 8 },
-  disappearingButtonActive: {},
-  sendButton: { padding: 8, borderRadius: 20, alignSelf: "center", marginLeft: 8 },
-  imageOptionsOverlay: { flex: 1, justifyContent: "flex-end", backgroundColor: "rgba(0, 0, 0, 0.5)" },
-  imageOptionsContent: { backgroundColor: COLORS.surface, borderTopLeftRadius: 16, borderTopRightRadius: 16, padding: 16 },
-  imageOptionButton: { flexDirection: "row", alignItems: "center", padding: 12 },
-  imageOptionText: { marginLeft: 12, fontSize: 16, color: COLORS.textPrimary },
-  confirmModalOverlay: { flex: 1, justifyContent: "center", alignItems: "center", backgroundColor: "rgba(0, 0, 0, 0.5)" },
-  confirmModalContent: { backgroundColor: COLORS.surface, borderRadius: 12, padding: 20, width: "80%" },
-  confirmModalTitle: { fontSize: 18, fontWeight: "600", color: COLORS.textPrimary, marginBottom: 8 },
-  confirmModalText: { fontSize: 14, color: COLORS.textSecondary, marginBottom: 20 },
-  confirmModalButtons: { flexDirection: "row", justifyContent: "flex-end" },
-  confirmModalCancel: { paddingVertical: 8, paddingHorizontal: 16, marginRight: 8 },
-  confirmModalCancelText: { fontSize: 16, color: COLORS.textSecondary },
-  confirmModalConfirm: { paddingVertical: 8, paddingHorizontal: 16, backgroundColor: COLORS.primary, borderRadius: 8 },
-  confirmModalConfirmText: { fontSize: 16, color: COLORS.textPrimary, fontWeight: "500" },
+  floatingContainer: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    zIndex: 1000,
+  },
+  keyboardAvoidingView: { 
+    backgroundColor: "transparent",
+  },
+  container: { 
+    backgroundColor: COLORS.background, 
+    borderTopWidth: 1, 
+    borderTopColor: COLORS.separator,
+    paddingBottom: Platform.OS === 'ios' ? 0 : 16,
+  },
+  replyContainer: { 
+    flexDirection: "row", 
+    alignItems: "center", 
+    backgroundColor: COLORS.surface, 
+    padding: 12, 
+    borderRadius: 12, 
+    marginHorizontal: 16, 
+    marginTop: 12,
+    marginBottom: 8,
+    borderLeftWidth: 3,
+    borderLeftColor: COLORS.accent,
+  },
+  replyContent: { 
+    flex: 1 
+  },
+  replyLabel: { 
+    fontSize: 13, 
+    color: COLORS.accent,
+    fontWeight: "600",
+  },
+  replyText: { 
+    fontSize: 14, 
+    color: COLORS.textPrimary, 
+    marginTop: 2 
+  },
+  replyCloseButton: { 
+    padding: 8,
+    marginLeft: 8,
+  },
+  blockedContainer: { 
+    padding: 20, 
+    backgroundColor: COLORS.background, 
+    borderTopWidth: 1, 
+    borderTopColor: COLORS.separator, 
+    alignItems: "center" 
+  },
+  blockedText: { 
+    fontSize: 16, 
+    color: COLORS.textSecondary, 
+    textAlign: "center", 
+    marginBottom: 12 
+  },
+  unblockButton: { 
+    padding: 12, 
+    backgroundColor: COLORS.primary, 
+    borderRadius: 8, 
+    alignItems: "center",
+    minWidth: 100,
+  },
+  unblockButtonText: { 
+    fontSize: 16, 
+    fontWeight: "600", 
+    color: COLORS.textPrimary 
+  },
+  inputContainer: { 
+    flexDirection: "row", 
+    alignItems: "flex-end", 
+    paddingHorizontal: 16, 
+    paddingVertical: 12, 
+    backgroundColor: COLORS.background,
+    gap: 10,
+  },
+  textInputContainer: { 
+    flex: 1, 
+    backgroundColor: COLORS.surface, 
+    borderRadius: 20, 
+    paddingLeft: 16,
+    paddingRight: 8,
+    paddingVertical: 8,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    maxHeight: 100,
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    minHeight: 40,
+  },
+  textInput: { 
+    flex: 1,
+    fontSize: 15, 
+    color: COLORS.textPrimary, 
+    minHeight: 24,
+    maxHeight: 84,
+    textAlignVertical: "center",
+    fontWeight: "400",
+    paddingTop: 0,
+    paddingBottom: 0,
+    lineHeight: 20,
+  },
+  disappearingButton: {
+    padding: 6,
+    borderRadius: 10,
+    marginLeft: 6,
+    marginBottom: 0,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  sendButton: { 
+    width: 40,
+    height: 40,
+    borderRadius: 20, 
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: COLORS.primary,
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.2,
+    shadowRadius: 2,
+    elevation: 2,
+  },
+  confirmModalOverlay: { 
+    flex: 1, 
+    justifyContent: "center", 
+    alignItems: "center", 
+    backgroundColor: "rgba(0, 0, 0, 0.8)" 
+  },
+  confirmModalContent: { 
+    backgroundColor: COLORS.surface, 
+    borderRadius: 20, 
+    padding: 24, 
+    width: "85%",
+    maxWidth: 320,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+  },
+  confirmModalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  confirmModalTitle: { 
+    fontSize: 18, 
+    fontWeight: "600", 
+    color: COLORS.textPrimary,
+    marginLeft: 12,
+  },
+  confirmModalText: { 
+    fontSize: 14, 
+    color: COLORS.textSecondary, 
+    marginBottom: 24,
+    lineHeight: 20,
+  },
+  confirmModalButtons: { 
+    flexDirection: "row", 
+    justifyContent: "flex-end",
+    gap: 12,
+  },
+  confirmModalCancel: { 
+    paddingVertical: 12, 
+    paddingHorizontal: 20,
+    backgroundColor: COLORS.background,
+    borderRadius: 8,
+  },
+  confirmModalCancelText: { 
+    fontSize: 16, 
+    color: COLORS.textSecondary,
+    fontWeight: "500",
+  },
+  confirmModalConfirm: { 
+    paddingVertical: 12, 
+    paddingHorizontal: 20, 
+    backgroundColor: COLORS.primary, 
+    borderRadius: 8,
+  },
+  confirmModalConfirmText: { 
+    fontSize: 16, 
+    color: COLORS.textPrimary, 
+    fontWeight: "600",
+  },
 });
 
 MessageInput.displayName = "MessageInput";

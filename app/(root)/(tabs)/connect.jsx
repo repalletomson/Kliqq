@@ -1,5 +1,3 @@
-
-
 import React, { useState, useEffect,createContext } from "react";
 import {
   View,
@@ -21,6 +19,7 @@ import { db, auth } from "../../../config/firebaseConfig";
 import { MaterialIcons, Ionicons, Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { useNavigation, useRouter } from "expo-router";
+import { LinearGradient } from 'expo-linear-gradient';
 
 // Updated color palette with gradients from bright to dull white
 const ThemeContext = React.createContext({
@@ -29,25 +28,27 @@ const ThemeContext = React.createContext({
 });
 
 const lightTheme = {
-  background: "#FFFFFF", // Bright white
-  surface: "#F8F9FA", // Very light gray
-  primary: "#6366F1", // Indigo (as requested)
-  secondary: "#E2E4E9", // Light grayish
-  text: "#171616", // Nearly black
-  textSecondary: "#6C6C6D", // Medium gray
-  border: "#E5E7EB", // Light border color
-  accent: "#6366F1", // Accent color matching primary
+  background: "#000000", // Black background
+  surface: "#111111", // Dark surface
+  primary: "#8B5CF6", // Purple accent color
+  secondary: "#27272A", // Dark grayish
+  text: "#FFFFFF", // White text
+  textSecondary: "#A1A1AA", // Light gray
+  border: "#27272A", // Dark border color
+  accent: "#8B5CF6", // Accent color matching primary
+  cardShadow: "rgba(0, 0, 0, 0.3)", // Dark shadow
 };
 
 const darkTheme = {
-  background: "#121212", // Dark background
-  surface: "#1E1E1E", // Slightly lighter than background
-  primary: "#6366F1", // Indigo (as requested)
-  secondary: "#2C2C2C", // Dark grayish
-  text: "#FFFFFF", // Bright white
-  textSecondary: "#B2B3B2", // Light gray
-  border: "#333333", // Dark border
-  accent: "#6366F1", // Accent color matching primary
+  background: "#000000", // Black background
+  surface: "#111111", // Dark card background
+  primary: "#8B5CF6", // Purple accent color
+  secondary: "#27272A", // Dark grayish
+  text: "#FFFFFF", // White text
+  textSecondary: "#A1A1AA", // Light gray
+  border: "#27272A", // Dark border
+  accent: "#8B5CF6", // Accent color matching primary
+  cardShadow: "rgba(0, 0, 0, 0.3)", // Dark shadow for dark mode
 };
 
 // Updated interests and branches
@@ -81,6 +82,20 @@ const branches = [
   "Civil Engineering",
   "Chemical Engineering",
   "Biotechnology"
+];
+
+// Sample bio messages for users who don't have one
+const sampleBios = [
+  "Loves tech & travel ✈️",
+  "Coffee enthusiast ☕",
+  "Always learning something new 📚",
+  "Passionate about coding 💻",
+  "Music lover 🎵",
+  "Fitness enthusiast 💪",
+  "Creative mind 🎨",
+  "Problem solver 🧠",
+  "Adventure seeker 🏔️",
+  "Bookworm 📖"
 ];
 
 export default function Connect()  {
@@ -120,6 +135,15 @@ export default function Connect()  {
     setIsDarkMode(!isDarkMode);
   };
 
+  // Helper function to get user bio or generate one
+  const getUserBio = (user) => {
+    if (user.about) return user.about;
+    if (user.interests && Array.isArray(user.interests) && user.interests.length > 0) {
+      return `Interested in ${user.interests[0]}`;
+    }
+    if (user.branch) return `Studying ${user.branch}`;
+    return sampleBios[Math.floor(Math.random() * sampleBios.length)];
+  };
 
   const loadRecommendations = async () => {
     try {
@@ -535,7 +559,7 @@ const ProfileModal = ({ user, visible, onClose }) => (
     );
   }
 
-  // Render functions for different view modes
+  // Modern Grid Card Design
   const renderGridItem = (user) => (
     <TouchableOpacity
       key={user.id}
@@ -544,134 +568,137 @@ const ProfileModal = ({ user, visible, onClose }) => (
         setProfileModalVisible(true);
       }}
       style={{
-        width: (windowWidth / 2) - 20,
-        marginBottom: 16,
+        width: (windowWidth / 2) - 24,
+        height: 220, // Fixed height for equal card sizes
+        marginBottom: 20,
         backgroundColor: theme.surface,
-        borderRadius: 16,
+        borderRadius: 20,
         overflow: 'hidden',
-        borderWidth: 0,
-        // Enhanced shadow for better depth perception
-        shadowColor: "#000",
-        shadowOffset: { width: 0, height: 3 },
-        shadowOpacity: 0.12,
-        shadowRadius: 8,
-        elevation: 4,
+        shadowColor: theme.cardShadow,
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 1,
+        shadowRadius: 12,
+        elevation: 6,
+        borderWidth: 1,
+        borderColor: colorScheme === 'dark' ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.05)',
       }}
     >
-      {/* Card Header with gradient overlay */}
-      <View style={{ 
-        height: 40, 
-        backgroundColor: `${theme.primary}15`,
-        borderBottomWidth: 1,
-        borderBottomColor: `${theme.primary}20`,
-      }} />
-      
-      {/* User Profile Image - positioned for overlap effect */}
+      {/* Profile Section */}
       <View style={{ 
         alignItems: 'center', 
-        marginTop: -30,
-        marginBottom: 10,
+        paddingTop: 20,
+        paddingHorizontal: 12,
+        paddingBottom: 16,
+        flex: 1,
+        justifyContent: 'space-between',
       }}>
-        <Image
-          source={{ 
-            uri: user.profileImage === 'https://via.placeholder.com/150' 
-              ? 'https://assets.grok.com/users/8c354dfe-946c-4a32-b2de-5cb3a8ab9776/generated/av8GdgP4VI6wfj1B/image.jpg'
-              : user.profileImage || "https://assets.grok.com/users/8c354dfe-946c-4a32-b2de-5cb3a8ab9776/generated/av8GdgP4VI6wfj1B/image.jpg"
-          }}
-          style={{
-            width: 80,
-            height: 80,
-            borderRadius: 40,
-            borderWidth: 3,
-            borderColor: theme.surface,
-            backgroundColor: theme.background,
-          }}
-          resizeMode="cover"
-        />
-      </View>
-      
-      {/* User Info - centered */}
-      <View style={{ 
-        paddingHorizontal: 16, 
-        paddingBottom: 16, 
-        alignItems: 'center',
-        gap: 6,
-      }}>
-        <Text style={{ 
-          fontSize: 16, 
-          fontWeight: "600", 
-          color: theme.text,
-          textAlign: 'center',
-          letterSpacing: 0.3,
-        }}>
-          {user.fullName}
-        </Text>
+        {/* Profile Image with Gradient Border */}
+        <View style={{ marginBottom: 12 }}>
+          <LinearGradient
+            colors={['#8B5CF6', '#EC4899', '#F59E0B']}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={{
+              padding: 3,
+              borderRadius: 35,
+            }}
+          >
+            <Image
+              source={{ 
+                uri: user.profileImage === 'https://via.placeholder.com/150' 
+                  ? 'https://assets.grok.com/users/8c354dfe-946c-4a32-b2de-5cb3a8ab9776/generated/av8GdgP4VI6wfj1B/image.jpg'
+                  : user.profileImage || "https://assets.grok.com/users/8c354dfe-946c-4a32-b2de-5cb3a8ab9776/generated/av8GdgP4VI6wfj1B/image.jpg"
+              }}
+              style={{
+                width: 64,
+                height: 64,
+                borderRadius: 32,
+                borderWidth: 3,
+                borderColor: theme.surface,
+                backgroundColor: theme.background,
+              }}
+              resizeMode="cover"
+            />
+          </LinearGradient>
+        </View>
         
-        {user.branch && (
-          <View style={{
-            backgroundColor: `${theme.primary}10`,
-            paddingHorizontal: 10,
-            paddingVertical: 4,
-            borderRadius: 12,
-            marginBottom: 4,
-          }}>
-            <Text style={{ 
-              fontSize: 12, 
-              color: theme.primary, 
-              fontWeight: "500",
+        {/* User Info Container */}
+        <View style={{ alignItems: 'center', flex: 1, justifyContent: 'center', width: '100%' }}>
+          {/* User Name - Single line */}
+          <Text 
+            style={{ 
+              fontSize: 16, 
+              fontWeight: "700", 
+              color: theme.text,
               textAlign: 'center',
-            }}>
-              @{user.college.name}
-            </Text>
-          </View>
-        )}
-        
-        {/* First interest tag if available */}
-        {Array.isArray(user.interests) && user.interests.length > 0 && (
-          <Text style={{ 
-            fontSize: 11, 
-            color: theme.textSecondary,
-            marginBottom: 8, 
-            textAlign: 'center',
-          }}>
-            {user.interests[0]} {user.interests.length > 1 ? `+${user.interests.length - 1} more` : ''}
+              letterSpacing: 0.3,
+              marginBottom: 6,
+              width: '100%',
+            }}
+            numberOfLines={1}
+            ellipsizeMode="tail"
+          >
+            {user.fullName}
           </Text>
-        )}
+          
+          {/* Bio/Status - Single line */}
+          <Text 
+            style={{ 
+              fontSize: 12, 
+              color: theme.textSecondary,
+              textAlign: 'center',
+              lineHeight: 16,
+              marginBottom: 16,
+              paddingHorizontal: 4,
+              width: '100%',
+            }}
+            numberOfLines={1}
+            ellipsizeMode="tail"
+          >
+            {getUserBio(user)}
+          </Text>
+        </View>
         
         {/* Message Button */}
-        <TouchableOpacity
-          onPress={(e) => {
-            e.stopPropagation();
-            handleChatNavigation(user);
-          }}
+        <LinearGradient
+          colors={['#8B5CF6', '#7C3AED']}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 0 }}
           style={{
-            backgroundColor: theme.primary,
-            borderRadius: 12,
-            paddingVertical: 10,
-            paddingHorizontal: 16,
-            alignItems: "center",
-            justifyContent: "center",
-            width: '100%',
-            flexDirection: 'row',
-            gap: 8,
+            borderRadius: 20,
             shadowColor: theme.primary,
-            shadowOffset: { width: 0, height: 2 },
-            shadowOpacity: 0.15,
-            shadowRadius: 4,
-            elevation: 2,
-            marginTop: 4,
+            shadowOffset: { width: 0, height: 3 },
+            shadowOpacity: 0.3,
+            shadowRadius: 6,
+            elevation: 4,
+            width: '85%',
           }}
         >
-          <MaterialIcons name="message" size={16} color={theme.background} />
-          <Text style={{ 
-            color: theme.background, 
-            fontSize: 14, 
-            fontWeight: "600",
-            letterSpacing: 0.2,
-          }}>
-            Message
-          </Text>
-        </TouchableOpacity>
+          <TouchableOpacity
+            onPress={(e) => {
+              e.stopPropagation();
+              handleChatNavigation(user);
+            }}
+            style={{
+              paddingVertical: 10,
+              paddingHorizontal: 20,
+              alignItems: "center",
+              justifyContent: "center",
+              flexDirection: 'row',
+              gap: 6,
+            }}
+          >
+            <MaterialIcons name="message" size={14} color="white" />
+            <Text style={{ 
+              color: "white", 
+              fontSize: 14, 
+              fontWeight: "600",
+              letterSpacing: 0.3,
+            }}>
+              Message
+            </Text>
+          </TouchableOpacity>
+        </LinearGradient>
       </View>
     </TouchableOpacity>
   );
@@ -685,65 +712,91 @@ const ProfileModal = ({ user, visible, onClose }) => (
       style={{
         flexDirection: "row",
         alignItems: "center",
-        paddingHorizontal: 16,
-        paddingVertical: 12,
-        borderBottomWidth: 0.3,
+        paddingHorizontal: 20,
+        paddingVertical: 16,
+        borderBottomWidth: 1,
         borderBottomColor: theme.border,
         backgroundColor: theme.surface,
+        marginHorizontal: 12,
+        marginBottom: 8,
+        borderRadius: 16,
+        shadowColor: theme.cardShadow,
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 1,
+        shadowRadius: 4,
+        elevation: 2,
       }}
     >
       {/* User Profile Image */}
-      {user.profileImage==='https://via.placeholder.com/150' ? <Image
-        source={{ uri:'https://assets.grok.com/users/8c354dfe-946c-4a32-b2de-5cb3a8ab9776/generated/av8GdgP4VI6wfj1B/image.jpg'}}
+      <LinearGradient
+        colors={['#8B5CF6', '#EC4899']}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
         style={{
-          width: 50,
-          height: 50,
-          borderRadius: 25,
-          marginRight: 14,
-          // borderWidth: 1,
-          // borderColor: theme.primary,
+          padding: 2,
+          borderRadius: 30,
+          marginRight: 16,
         }}
-        resizeMode="cover"
-      /> :
-      <Image
-      source={{ uri: user.profileImage || "https://assets.grok.com/users/8c354dfe-946c-4a32-b2de-5cb3a8ab9776/generated/av8GdgP4VI6wfj1B/image.jpg" }}        style={{
-          width: 50,
-          height: 50,
-          borderRadius: 25,
-          marginRight: 14,
-          // borderWidth: 1.5,
-          // borderColor: theme.primary,
-        }}
-        resizeMode="cover"
-      />
-      }
+      >
+        <Image
+          source={{ 
+            uri: user.profileImage === 'https://via.placeholder.com/150' 
+              ? 'https://assets.grok.com/users/8c354dfe-946c-4a32-b2de-5cb3a8ab9776/generated/av8GdgP4VI6wfj1B/image.jpg'
+              : user.profileImage || "https://assets.grok.com/users/8c354dfe-946c-4a32-b2de-5cb3a8ab9776/generated/av8GdgP4VI6wfj1B/image.jpg"
+          }}
+          style={{
+            width: 56,
+            height: 56,
+            borderRadius: 28,
+            borderWidth: 2,
+            borderColor: theme.surface,
+          }}
+          resizeMode="cover"
+        />
+      </LinearGradient>
+      
       {/* User Info */}
       <View style={{ flex: 1 }}>
-        <Text style={{ fontSize: 14, fontWeight: "600", color: theme.text }}>
+        <Text style={{ fontSize: 16, fontWeight: "600", color: theme.text, marginBottom: 4 }}>
           {user.fullName}
         </Text>
-        <Text style={{ fontSize: 12, color: theme.textSecondary, marginTop: 2 }}>
-          {user.college.name || ""}
+        <Text style={{ fontSize: 13, color: theme.textSecondary, marginBottom: 2 }}>
+          {user.college?.name || ""}
+        </Text>
+        <Text style={{ fontSize: 12, color: theme.textSecondary, fontStyle: 'italic' }}>
+          {getUserBio(user)}
         </Text>
       </View>
 
-      {/* Follow Button */}
-      <TouchableOpacity
-        onPress={(e) => {
-          e.stopPropagation();
-          handleChatNavigation(user);
-        }}
+      {/* Message Button */}
+      <LinearGradient
+        colors={['#8B5CF6', '#7C3AED']}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 0 }}
         style={{
-          backgroundColor: theme.primary,
-          borderRadius: 6,
-          paddingVertical: 6,
-          paddingHorizontal: 16,
-          alignItems: "center",
-          justifyContent: "center",
+          borderRadius: 20,
+          shadowColor: theme.primary,
+          shadowOffset: { width: 0, height: 2 },
+          shadowOpacity: 0.3,
+          shadowRadius: 4,
+          elevation: 3,
         }}
       >
-        <Text style={{ color: theme.background, fontSize: 12, fontWeight: "500" }}>Follow</Text>
-      </TouchableOpacity>
+        <TouchableOpacity
+          onPress={(e) => {
+            e.stopPropagation();
+            handleChatNavigation(user);
+          }}
+          style={{
+            paddingVertical: 10,
+            paddingHorizontal: 20,
+            alignItems: "center",
+            justifyContent: "center",
+          }}
+        >
+          <Text style={{ color: "white", fontSize: 14, fontWeight: "600" }}>Message</Text>
+        </TouchableOpacity>
+      </LinearGradient>
     </TouchableOpacity>
   );
 
@@ -751,34 +804,75 @@ const ProfileModal = ({ user, visible, onClose }) => (
     <ThemeContext.Provider value={{ isDarkMode, toggleTheme }}>
     <SafeAreaView style={{ flex: 1, backgroundColor: theme.background, marginBottom: 30}}>
      <StatusBar 
-               backgroundColor={isDarkMode ? 'white' : 'black'}
-               barStyle={isDarkMode ? 'dark-content' : 'light-content'}
+               backgroundColor="#000000"
+               barStyle="light-content"
              />
 
       {/* Header Section */}
       <View
         style={{
           backgroundColor: theme.surface,
-          padding: 16,
-          borderBottomWidth: 0.3,
+          paddingHorizontal: 20,
+          paddingVertical: 20,
+          borderBottomWidth: 1,
           borderBottomColor: theme.border,
+          shadowColor: theme.cardShadow,
+          shadowOffset: { width: 0, height: 2 },
+          shadowOpacity: 1,
+          shadowRadius: 4,
+          elevation: 2,
         }}
       >  
-        <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-          <Text style={{ fontSize: 22, fontWeight: "bold", color: theme.text }}>Find Friends</Text>
-          <View style={{ flexDirection: "row", gap: 8 }}>
+        <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+          <Text style={{ fontSize: 26, fontWeight: "800", color: theme.text, letterSpacing: 0.5 }}>
+            Connect with People
+          </Text>
+          <View style={{ flexDirection: "row", gap: 12 }}>
             <TouchableOpacity
               onPress={() => setViewMode((prev) => (prev === "grid" ? "list" : "grid"))}
-              style={{ backgroundColor: theme.background, padding: 8, borderRadius: 8 }}
+              style={{ 
+                backgroundColor: theme.background, 
+                padding: 10, 
+                borderRadius: 12,
+                shadowColor: theme.cardShadow,
+                shadowOffset: { width: 0, height: 2 },
+                shadowOpacity: 1,
+                shadowRadius: 4,
+                elevation: 2,
+              }}
             >
-
-              <Feather name={viewMode === "grid" ? "list" : "grid"} size={18} color={theme.text} />
+              <Feather name={viewMode === "grid" ? "list" : "grid"} size={20} color={theme.primary} />
             </TouchableOpacity>
             <TouchableOpacity
               onPress={() => setFilterModalVisible(true)}
-              style={{ backgroundColor: theme.background, padding: 8, borderRadius: 8 }}
+              style={{ 
+                backgroundColor: theme.background, 
+                padding: 10, 
+                borderRadius: 12,
+                shadowColor: theme.cardShadow,
+                shadowOffset: { width: 0, height: 2 },
+                shadowOpacity: 1,
+                shadowRadius: 4,
+                elevation: 2,
+              }}
             > 
-              <Feather name="filter" size={18} color={theme.text} />
+              <Feather name="filter" size={20} color={theme.primary} />
+            </TouchableOpacity>
+            {/* Skip/Close Button */}
+            <TouchableOpacity
+              onPress={() => router.back()}
+              style={{ 
+                backgroundColor: theme.background, 
+                padding: 10, 
+                borderRadius: 12,
+                shadowColor: theme.cardShadow,
+                shadowOffset: { width: 0, height: 2 },
+                shadowOpacity: 1,
+                shadowRadius: 4,
+                elevation: 2,
+              }}
+            > 
+              <Ionicons name="close" size={20} color={theme.textSecondary} />
             </TouchableOpacity>
           </View>
         </View>
@@ -789,14 +883,22 @@ const ProfileModal = ({ user, visible, onClose }) => (
             flexDirection: "row",
             alignItems: "center",
             backgroundColor: theme.background,
-            borderRadius: 8,
-            padding: 8,
-            marginBottom: 8,
+            borderRadius: 14,
+            paddingHorizontal: 16,
+            paddingVertical: 12,
+            marginBottom: 12,
+            borderWidth: 1,
+            borderColor: theme.border,
+            shadowColor: theme.cardShadow,
+            shadowOffset: { width: 0, height: 1 },
+            shadowOpacity: 1,
+            shadowRadius: 2,
+            elevation: 1,
           }}
         >
-          <Ionicons name="search" size={18} color={theme.textSecondary} />
+          <Ionicons name="search" size={20} color={theme.textSecondary} />
           <TextInput
-            style={{ flex: 1, color: theme.text, marginLeft: 8, fontSize: 14 }}
+            style={{ flex: 1, color: theme.text, marginLeft: 12, fontSize: 16 }}
             placeholder="Search by name..."
             placeholderTextColor={theme.textSecondary}
             value={searchQuery}
@@ -804,19 +906,22 @@ const ProfileModal = ({ user, visible, onClose }) => (
           />
         </View>
 
-        <Text style={{ color: theme.textSecondary, fontSize: 13 }}>
-          {filteredUsers.length} of {totalConnections} people
+        <Text style={{ color: theme.textSecondary, fontSize: 14, fontWeight: "500" }}>
+          {filteredUsers.length} of {totalConnections} people available
         </Text>
       </View>
 
       {/* User Cards - Grid or List View */}
-      <ScrollView style={{ flex: 1, backgroundColor: colorScheme === "dark" ? theme.background : "#F5F5F5" }}>
+      <ScrollView 
+        style={{ flex: 1, backgroundColor: theme.background }}
+        contentContainerStyle={{ padding: 12 }}
+        showsVerticalScrollIndicator={false}
+      >
         {viewMode === "grid" ? (
           <View style={{ 
             flexDirection: "row", 
             flexWrap: "wrap", 
             justifyContent: "space-between",
-            padding: 8
           }}>
             {filteredUsers.map(user => renderGridItem(user))}
           </View>
@@ -825,6 +930,9 @@ const ProfileModal = ({ user, visible, onClose }) => (
             {filteredUsers.map(user => renderListItem(user))}
           </View>
         )}
+        
+        {/* Bottom Spacing */}
+        <View style={{ height: 20 }} />
       </ScrollView>
 
       {/* Modals */}

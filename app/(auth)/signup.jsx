@@ -1,4 +1,3 @@
-
 import React, { useEffect, useState } from 'react';
 import { 
   View, 
@@ -9,60 +8,78 @@ import {
   Platform, 
   ScrollView,
   StatusBar,
+  Animated,
+  Dimensions,
 } from 'react-native';
 import { router } from 'expo-router';
-import { AntDesign } from '@expo/vector-icons';
+import { AntDesign, MaterialIcons, Feather } from '@expo/vector-icons';
 import { GoogleSignin } from '@react-native-google-signin/google-signin';
 import { useAuth } from '../../context/authContext';
-import CustomAlert from '../../components/CustomAlert';
+import { LinearGradient } from 'expo-linear-gradient';
 
+const { width, height } = Dimensions.get('window');
+
+// Clean solid colors for better visibility
 const colors = {
-  background: '#070606',
+  background: '#000000',
+  surface: '#1A1A1A',
   text: '#FFFFFF',
-  textSecondary: 'rgba(255, 255, 255, 0.6)',
-  buttonBg: 'rgba(255, 255, 255, 0.1)',
-  inputBg: 'rgba(255, 255, 255, 0.08)',
-  accent: '#2196F3', // Blue accent for links
+  textSecondary: '#CCCCCC',
+  textMuted: '#999999',
+  inputBg: '#2A2A2A',
+  inputBorder: '#404040',
+  googleBg: '#FFFFFF',
+  accent: '#3B82F6',
+  gradientStart: '#EC4899',
+  gradientEnd: '#8B5CF6',
 };
 
 export default function SignUpScreen() {
   const [email, setEmail] = useState('');
+  const [fullName, setFullName] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [alert, setAlert] = useState(null);
   const [step, setStep] = useState(1);
- const [photoUrl, setPhotoUrl] = useState(null);
- const {register}=useAuth()
+  const [photoUrl, setPhotoUrl] = useState(null);
+  const [showPassword, setShowPassword] = useState(false);
+  const { register } = useAuth();
+
+  // Animation values
+  const fadeAnim = new Animated.Value(0);
+  const slideAnim = new Animated.Value(30);
+
   useEffect(() => {
     GoogleSignin.configure({
       webClientId: '912883386678-q9jbm946ol5hr1j78059m1e6erhhi1n5.apps.googleusercontent.com',
     });
+
+    // Start animations
+    Animated.parallel([
+      Animated.timing(fadeAnim, {
+        toValue: 1,
+        duration: 600,
+        useNativeDriver: true,
+      }),
+      Animated.timing(slideAnim, {
+        toValue: 0,
+        duration: 500,
+        useNativeDriver: true,
+      }),
+    ]).start();
   }, []);
 
   const handleGoogleSignUp = async () => {
     try {
-   setLoading(true);
-         
-         // Sign out first
-         await GoogleSignin.signOut();
-         
-         // Check Play Services
-         await GoogleSignin.hasPlayServices();
-   
-         
-         // Get Google user info
-         // const signInResult = await GoogleSignin.signIn();
-         const {type,data} = await GoogleSignin.signIn();
+      setLoading(true);
+      await GoogleSignin.signOut();
+      await GoogleSignin.hasPlayServices();
       
-      // const userDoc = await getDoc(doc(db, 'users', data.user.email));
-      // if (userDoc.exists()) {
-      //   setAlert({ type: 'warning', message: 'Account exists. Please sign in instead.' });
-      //   setTimeout(() => router.push('/(auth)/signin'), 1500);
-      //   return;
-      // }
-      console.log("data",data.user)
+      const { type, data } = await GoogleSignin.signIn();
+      console.log("data", data.user);
       setPhotoUrl(data.user.photo);
       setEmail(data.user.email);
+      setFullName(data.user.name || '');
       setStep(2);
     } catch (error) {
       setAlert({ type: 'error', message: 'Google signup failed. Please try again.' });
@@ -72,170 +89,354 @@ export default function SignUpScreen() {
   };
 
   const handleSignUp = async () => {
-    // if (!/^(?=.*[A-Za-z])(?=.*\d)[A-Za-z\d]{8,}$/.test(password)) {
-    //   setAlert({ type: 'error', message: 'Password must be 8+ characters with letters & numbers.' });
-    //   return;
-    // }
+    if (!fullName.trim()) {
+      setAlert({ type: 'error', message: 'Please enter your full name.' });
+      return;
+    }
+    if (!email.trim()) {
+      setAlert({ type: 'error', message: 'Please enter your email.' });
+      return;
+    }
+    if (!password.trim()) {
+      setAlert({ type: 'error', message: 'Please enter a password.' });
+      return;
+    }
+
     try {
       setLoading(true);
-      // await createUserWithEmailAndPassword(auth, email, password);
-      // await setDoc(doc(db, 'users', email), { email, createdAt: new Date().toISOString() });
-      const response = await register(email, password, photoUrl);
+      const response = await register(email, password, photoUrl, fullName);
       if (response) {
-        setAlert({ type: 'success', message: 'Signup successful! Redirecting...' });
+        setAlert({ type: 'success', message: 'Account created successfully! Welcome aboard!' });
       }
-      // setTimeout(() => router.push('/(app)/profile'), 1500);
     } catch (error) {
       setAlert({ type: 'error', message: error.message });
-      setAlert({
-        type: 'error',
-        message: error.code === 'auth/email-already-in-use'
-          ? 'Email already in use. Please sign in instead.'
-          : 'Failed to create account. Please try again.'
-      });
     } finally {
       setLoading(false);
     }
   };
 
-
-
-  // ... keep your existing Google Sign In and registration logic ...
-
-  return (
-    <KeyboardAvoidingView 
-      behavior={Platform.OS === "ios" ? "padding" : "height"}
-      style={{ backgroundColor: colors.background }}
-      className="flex-1"
+  const GradientButton = ({ title, onPress, disabled, variant = 'primary' }) => (
+    <TouchableOpacity
+      onPress={onPress}
+      disabled={disabled}
+      style={{
+        width: '100%',
+        height: 56,
+        borderRadius: 16,
+        overflow: 'hidden',
+        marginVertical: 8,
+      }}
     >
-      <StatusBar barStyle="light-content" backgroundColor={colors.background} />
-      <ScrollView 
-        contentContainerStyle={{ flexGrow: 1 }}
-        className="flex-1"
-      >
-        <View className="flex-1 px-6">
-          {/* Header Section */}
-          <View className="h-56 justify-end mb-8">
-            <Text className="text-4xl font-bold mb-2" style={{ color: colors.text }}>
-              Kiliq
-              <Text style={{ fontSize: 16, color: colors.textSecondary }}> beta</Text>
+      {variant === 'primary' ? (
+        <LinearGradient
+          colors={[colors.gradientStart, colors.gradientEnd]}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 0 }}
+          style={{
+            flex: 1,
+            alignItems: 'center',
+            justifyContent: 'center',
+            opacity: disabled ? 0.7 : 1,
+          }}
+        >
+          <Text style={{
+            color: colors.text,
+            fontSize: 16,
+            fontWeight: '700',
+            letterSpacing: 0.3,
+          }}>
+            {title}
+          </Text>
+        </LinearGradient>
+      ) : (
+        <View style={{
+          flex: 1,
+          backgroundColor: colors.googleBg,
+          alignItems: 'center',
+          justifyContent: 'center',
+          opacity: disabled ? 0.7 : 1,
+        }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+            <AntDesign name="google" size={20} color="#4285F4" />
+            <Text style={{
+              color: '#1F1F1F',
+              fontSize: 16,
+              fontWeight: '600',
+              marginLeft: 12,
+            }}>
+              {title}
             </Text>
-          </View>
-
-          {/* Main Content */}
-          <View>
-            <Text className="text-2xl font-bold mb-8" style={{ color: colors.text }}>
-              Sign Up
-            </Text>
-            <Text className="text-lg mb-8" style={{ color: colors.textSecondary }}>
-              Create your account
-            </Text>
-
-            {step === 1 ? (
-              <View>
-                {/* Google Sign Up Button */}
-                <TouchableOpacity
-                  className="w-full h-14 rounded-lg mb-6 flex-row items-center px-4"
-                  style={{ backgroundColor: colors.buttonBg }}
-                  onPress={handleGoogleSignUp}
-                  disabled={loading}
-                >
-                  <AntDesign name="google" size={24} color="white" />
-                  <Text className="ml-3 font-medium" style={{ color: colors.text }}>
-                    {loading ? 'Signing up...' : 'Continue with Google'}
-                  </Text>
-                </TouchableOpacity>
-
-                {/* Divider */}
-                <View className="flex-row items-center mb-6">
-                  <View className="flex-1 h-[1px]" style={{ backgroundColor: colors.textSecondary }} />
-                  <Text className="mx-4" style={{ color: colors.textSecondary }}>OR</Text>
-                  <View className="flex-1 h-[1px]" style={{ backgroundColor: colors.textSecondary }} />
-                </View>
-
-                {/* Sign In Link */}
-                <View className="mt-6 flex-row justify-center">
-                  <Text style={{ color: colors.textSecondary }}>
-                    Already have an account?{' '}
-                  </Text>
-                  <TouchableOpacity onPress={() => router.push('/(auth)/signin')}>
-                    <Text style={{ color: colors.accent }}>Sign In</Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
-            ) : (
-              <View>
-                {/* Email Input (Disabled) */}
-                <View className="mb-4">
-                  <Text className="text-sm mb-2" style={{ color: colors.textSecondary }}>
-                    Email
-                  </Text>
-                  <View className="w-full h-14 rounded-lg px-4 flex-row items-center"
-                    style={{ backgroundColor: colors.inputBg }}>
-                    <AntDesign name="mail" size={20} color={colors.textSecondary} />
-                    <TextInput
-                      value={email}
-                      editable={false}
-                      className="flex-1 ml-3 h-full"
-                      style={{ color: colors.textSecondary }}
-                    />
-                  </View>
-                </View>
-
-                {/* Password Input */}
-                <View className="mb-6">
-                  <Text className="text-sm mb-2" style={{ color: colors.textSecondary }}>
-                    Create Password
-                  </Text>
-                  <View className="w-full h-14 rounded-lg px-4 flex-row items-center"
-                    style={{ backgroundColor: colors.inputBg }}>
-                    <AntDesign name="lock" size={20} color={colors.textSecondary} />
-                    <TextInput
-                      placeholder="Enter your password"
-                      placeholderTextColor={colors.textSecondary}
-                      secureTextEntry
-                      className="flex-1 ml-3 h-full"
-                      style={{ color: colors.text }}
-                      onChangeText={setPassword}
-                    />
-                  </View>
-                </View>
-
-                {/* Sign Up Button */}
-                <TouchableOpacity
-                  className="w-full h-14 rounded-lg items-center justify-center"
-                  style={{ backgroundColor: colors.text }}
-                  onPress={handleSignUp}
-                  disabled={loading}
-                >
-                  <Text style={{ color: colors.background, fontWeight: '600' }}>
-                    {loading ? 'Creating Account...' : 'Create Account'}
-                  </Text>
-                </TouchableOpacity>
-
-                {/* Sign In Link */}
-                <View className="mt-6 flex-row justify-center">
-                  <Text style={{ color: colors.textSecondary }}>
-                    Already have an account?{' '}
-                  </Text>
-                  <TouchableOpacity onPress={() => router.push('/(auth)/signin')}>
-                    <Text style={{ color: colors.accent }}>Sign In</Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
-            )}
           </View>
         </View>
+      )}
+    </TouchableOpacity>
+  );
 
-        {alert && (
-          <CustomAlert
-            visible={!!alert}
-            type={alert.type}
-            message={alert.message}
-            onClose={() => setAlert(null)}
+  const ModernInput = ({ 
+    placeholder, 
+    value, 
+    onChangeText, 
+    secureTextEntry = false,
+    keyboardType = 'default',
+    icon,
+    editable = true 
+  }) => (
+    <View style={{
+      backgroundColor: colors.inputBg,
+      borderRadius: 16,
+      borderWidth: 2,
+      borderColor: colors.inputBorder,
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingHorizontal: 16,
+      paddingVertical: 4,
+      marginVertical: 8,
+      height: 56,
+    }}>
+      {icon && (
+        <View style={{ marginRight: 12 }}>
+          {icon}
+        </View>
+      )}
+      <TextInput
+        placeholder={placeholder}
+        placeholderTextColor={colors.textMuted}
+        value={value}
+        onChangeText={onChangeText}
+        secureTextEntry={secureTextEntry && !showPassword}
+        keyboardType={keyboardType}
+        editable={editable}
+        autoCapitalize="none"
+        style={{
+          flex: 1,
+          color: colors.text,
+          fontSize: 16,
+          fontWeight: '400',
+        }}
+      />
+      {secureTextEntry && (
+        <TouchableOpacity
+          onPress={() => setShowPassword(!showPassword)}
+          style={{ padding: 4 }}
+        >
+          <Feather 
+            name={showPassword ? "eye-off" : "eye"} 
+            size={20} 
+            color={colors.textMuted} 
           />
-        )}
-      </ScrollView>
-    </KeyboardAvoidingView>
+        </TouchableOpacity>
+      )}
+    </View>
+  );
+
+  return (
+    <View style={{ flex: 1, backgroundColor: colors.background }}>
+      <StatusBar barStyle="light-content" backgroundColor={colors.background} />
+
+      <KeyboardAvoidingView 
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
+        style={{ flex: 1 }}
+      >
+        <ScrollView 
+          contentContainerStyle={{ flexGrow: 1 }}
+          showsVerticalScrollIndicator={false}
+        >
+          <Animated.View 
+            style={{
+              flex: 1,
+              paddingHorizontal: 24,
+              paddingTop: 80,
+              justifyContent: 'center',
+              transform: [{ translateY: slideAnim }],
+              opacity: fadeAnim,
+            }}
+          >
+            {/* Header */}
+            <View style={{ alignItems: 'center', marginBottom: 48 }}>
+              <Text style={{
+                fontSize: 32,
+                fontWeight: '800',
+                color: colors.text,
+                marginBottom: 8,
+                textAlign: 'center',
+              }}>
+                Create your account
+              </Text>
+              <Text style={{
+                fontSize: 16,
+                color: colors.textSecondary,
+                textAlign: 'center',
+                lineHeight: 24,
+              }}>
+                Get started with your new account
+              </Text>
+            </View>
+
+            {/* Content */}
+            <View style={{ marginBottom: 32 }}>
+              {step === 1 ? (
+                <View>
+                  {/* Google Sign Up */}
+                  <GradientButton
+                    title={loading ? 'Signing up...' : 'Continue with Google'}
+                    onPress={handleGoogleSignUp}
+                    disabled={loading}
+                    variant="google"
+                  />
+
+                  {/* Divider */}
+                  <View style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    marginVertical: 32,
+                  }}>
+                    <View style={{
+                      flex: 1,
+                      height: 2,
+                      backgroundColor: colors.inputBorder,
+                    }} />
+                    <Text style={{
+                      marginHorizontal: 16,
+                      color: colors.textSecondary,
+                      fontSize: 14,
+                      fontWeight: '600',
+                    }}>
+                      OR
+                    </Text>
+                    <View style={{
+                      flex: 1,
+                      height: 2,
+                      backgroundColor: colors.inputBorder,
+                    }} />
+                  </View>
+
+                  {/* Manual Form */}
+                  <View style={{ marginBottom: 24 }}>
+                    <ModernInput
+                      placeholder="Full Name"
+                      value={fullName}
+                      onChangeText={setFullName}
+                      icon={<Feather name="user" size={20} color={colors.textSecondary} />}
+                    />
+
+                    <ModernInput
+                      placeholder="Email"
+                      value={email}
+                      onChangeText={setEmail}
+                      keyboardType="email-address"
+                      icon={<MaterialIcons name="email" size={20} color={colors.textSecondary} />}
+                    />
+
+                    <ModernInput
+                      placeholder="Password"
+                      value={password}
+                      onChangeText={setPassword}
+                      secureTextEntry={true}
+                      icon={<MaterialIcons name="lock-outline" size={20} color={colors.textSecondary} />}
+                    />
+                  </View>
+
+                  {/* Sign Up Button */}
+                  <GradientButton
+                    title={loading ? 'Creating Account...' : 'Sign Up'}
+                    onPress={handleSignUp}
+                    disabled={loading}
+                  />
+                </View>
+              ) : (
+                // Step 2: Complete Google signup
+                <View>
+                  <Text style={{
+                    fontSize: 24,
+                    fontWeight: '700',
+                    color: colors.text,
+                    textAlign: 'center',
+                    marginBottom: 32,
+                  }}>
+                    Complete your profile
+                  </Text>
+
+                  <ModernInput
+                    placeholder="Email"
+                    value={email}
+                    onChangeText={setEmail}
+                    editable={false}
+                    icon={<MaterialIcons name="email" size={20} color={colors.textSecondary} />}
+                  />
+
+                  <ModernInput
+                    placeholder="Full Name"
+                    value={fullName}
+                    onChangeText={setFullName}
+                    icon={<Feather name="user" size={20} color={colors.textSecondary} />}
+                  />
+
+                  <ModernInput
+                    placeholder="Password"
+                    value={password}
+                    onChangeText={setPassword}
+                    secureTextEntry={true}
+                    icon={<MaterialIcons name="lock-outline" size={20} color={colors.textSecondary} />}
+                  />
+
+                  <GradientButton
+                    title={loading ? 'Creating Account...' : 'Complete Setup'}
+                    onPress={handleSignUp}
+                    disabled={loading}
+                  />
+                </View>
+              )}
+            </View>
+
+            {/* Footer */}
+            <View style={{
+              alignItems: 'center',
+              paddingBottom: 40,
+            }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                <Text style={{
+                  color: colors.textSecondary,
+                  fontSize: 15,
+                }}>
+                  Already have an account?{' '}
+                </Text>
+                <TouchableOpacity onPress={() => router.push('/(auth)/signin')}>
+                  <Text style={{
+                    color: colors.accent,
+                    fontSize: 15,
+                    fontWeight: '600',
+                  }}>
+                    Sign In
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </Animated.View>
+        </ScrollView>
+      </KeyboardAvoidingView>
+
+      {/* Alert Display */}
+      {alert && (
+        <Animated.View style={{
+          position: 'absolute',
+          top: 100,
+          left: 24,
+          right: 24,
+          backgroundColor: alert.type === 'success' ? '#10B981' : '#EF4444',
+          borderRadius: 12,
+          padding: 16,
+          zIndex: 1000,
+        }}>
+          <Text style={{
+            color: colors.text,
+            fontSize: 14,
+            fontWeight: '600',
+            textAlign: 'center',
+          }}>
+            {alert.message}
+          </Text>
+        </Animated.View>
+      )}
+    </View>
   );
 }

@@ -99,46 +99,62 @@
 // //   );
 // // }
 import React, { useEffect, useState } from 'react';
-import { Animated, Platform, Keyboard, View } from 'react-native';
+import { Animated, Platform, Keyboard, View, Dimensions } from 'react-native';
 import { Tabs } from "expo-router";
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import MaterialIcons from '@expo/vector-icons/MaterialIcons';
+
+const { width } = Dimensions.get('window');
 
 const COLORS = {
-  background: '#070606',
-  iconInactive: '#6C6C6D',
-  iconActive: '#FFFFFF'
+  background: '#000000',
+  iconInactive: '#8E8E93',
+  iconActive: '#FFFFFF',
+  activeBackground: 'transparent'
 };
 
-const TabIcon = ({ name, focused }) => (
-  <View style={{ 
-    alignItems: 'center',
-    justifyContent: 'center',
-    width: 32,
-    height: 32
-  }}>
-    <Ionicons
-      name={getIconName(name, focused)}
-      size={24}
-      color={focused ? COLORS.iconActive : COLORS.iconInactive}
-      style={{ opacity: focused ? 1 : 0.8 }}
-    />
-  </View>
-);
+const TabIcon = ({ name, focused }) => {
+  const scaleValue = useState(new Animated.Value(1))[0];
+  
+  useEffect(() => {
+    Animated.spring(scaleValue, {
+      toValue: focused ? 1.05 : 1,
+      useNativeDriver: true,
+      tension: 150,
+      friction: 10,
+    }).start();
+  }, [focused]);
+
+  return (
+    <Animated.View 
+      style={{ 
+        alignItems: 'center',
+        justifyContent: 'center',
+        width: 44,
+        height: 44,
+        transform: [{ scale: scaleValue }],
+      }}
+    >
+      <Ionicons
+        name={getIconName(name, focused)}
+        size={24}
+        color={focused ? COLORS.iconActive : COLORS.iconInactive}
+        style={{ opacity: focused ? 1 : 0.8 }}
+      />
+    </Animated.View>
+  );
+};
 
 const getIconName = (routeName, focused) => {
   switch (routeName) {
     case 'home':
-      return 'home-outline';
-    case 'search':
-      return 'search-outline';
-    case 'messages':
-      return 'mail-outline';
-    case 'notifications':
-      return 'notifications-outline';
+      return focused ? 'home' : 'home-outline';
+    case 'connect':
+      return focused ? 'people' : 'people-outline';
+    case 'chat':
+      return focused ? 'chatbubbles' : 'chatbubbles-outline';
     case 'groups':
-      return 'people-circle-outline';
+      return focused ? 'person-circle' : 'person-circle-outline';
     default:
       return 'circle-outline';
   }
@@ -147,16 +163,30 @@ const getIconName = (routeName, focused) => {
 export default function Layout() {
   const insets = useSafeAreaInsets();
   const [keyboardVisible, setKeyboardVisible] = useState(false);
-  const [scrollY] = useState(new Animated.Value(0));
+  const [tabBarOpacity] = useState(new Animated.Value(1));
 
   useEffect(() => {
     const showSubscription = Keyboard.addListener(
       Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow',
-      () => setKeyboardVisible(true)
+      () => {
+        setKeyboardVisible(true);
+        Animated.timing(tabBarOpacity, {
+          toValue: 0,
+          duration: 200,
+          useNativeDriver: true,
+        }).start();
+      }
     );
     const hideSubscription = Keyboard.addListener(
       Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide',
-      () => setKeyboardVisible(false)
+      () => {
+        setKeyboardVisible(false);
+        Animated.timing(tabBarOpacity, {
+          toValue: 1,
+          duration: 200,
+          useNativeDriver: true,
+        }).start();
+      }
     );
 
     return () => {
@@ -165,27 +195,22 @@ export default function Layout() {
     };
   }, []);
 
-  const tabBarTranslateY = scrollY.interpolate({
-    inputRange: [0, 1],
-    outputRange: [0, 100],
-    extrapolate: 'clamp'
-  });
-
   return (
     <Tabs
       screenOptions={{
         tabBarShowLabel: false,
         tabBarStyle: {
-          transform: [{ translateY: tabBarTranslateY }],
-          paddingBottom: insets.bottom,
-          height: 49 + insets.bottom,
-          backgroundColor: COLORS.background,
-          borderTopWidth: 0,
           position: 'absolute',
+          bottom: 0,
           left: 0,
           right: 0,
-          bottom: 0,
-          display: keyboardVisible ? 'none' : 'flex',
+          height: 88 + insets.bottom,
+          backgroundColor: COLORS.background,
+          borderTopWidth: 0,
+          paddingBottom: insets.bottom,
+          paddingTop: 10,
+          elevation: 0,
+          shadowOpacity: 0,
         },
       }}
     >
@@ -200,23 +225,16 @@ export default function Layout() {
         name="connect"
         options={{
           headerShown: false,
-          tabBarIcon: ({ focused }) => <TabIcon name="search" focused={focused} />,
+          tabBarIcon: ({ focused }) => <TabIcon name="connect" focused={focused} />,
         }}
       />
       <Tabs.Screen
         name="chat"
         options={{
           headerShown: false,
-          tabBarIcon: ({ focused }) => <TabIcon name="messages" focused={focused} />,
+          tabBarIcon: ({ focused }) => <TabIcon name="chat" focused={focused} />,
         }}
       />
-      {/* <Tabs.Screen
-        name="notifications"
-        options={{
-          headerShown: false,
-          tabBarIcon: ({ focused }) => <TabIcon name="notifications" focused={focused} />,
-        }}
-      /> */}
       <Tabs.Screen
         name="groups"
         options={{
@@ -224,13 +242,6 @@ export default function Layout() {
           tabBarIcon: ({ focused }) => <TabIcon name="groups" focused={focused} />,
         }}
       />
-         {/* <Tabs.Screen
-        name="jobs"
-        options={{
-          headerShown: false,
-          tabBarIcon: ({ focused }) => <TabIcon name="groups" focused={focused} />,
-        }}
-      /> */}
     </Tabs>
   );
 }

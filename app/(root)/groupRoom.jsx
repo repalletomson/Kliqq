@@ -1,7 +1,5 @@
-
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigation, useRoute, useFocusEffect } from '@react-navigation/native';
-import { useColorScheme } from 'react-native';
 
 // Import necessary React Native components
 import {
@@ -24,11 +22,26 @@ import {
   getGroupMessages, 
   sendMessage, 
   getCurrentUser, 
-  addReaction,
   deleteMessage,
-  replyToMessage,
   getGroupMembers
 } from '../../lib/firebase';
+
+// Consistent Color Palette - Black Theme with Purple Accents
+const COLORS = {
+  background: '#000000',
+  cardBg: '#000000',
+  text: '#FFFFFF',
+  textSecondary: '#E5E5E5',
+  textMuted: '#A1A1AA',
+  inputBg: '#1A1A1A',
+  accent: '#8B5CF6',
+  messageOwn: '#8B5CF6',      // Light purple for own messages
+  messageOther: '#1A1A1A',    // Dark gray for other messages
+  success: '#10B981',
+  danger: '#EF4444',
+  shadow: 'rgba(139, 92, 246, 0.15)',
+  border: 'rgba(255, 255, 255, 0.1)',
+};
 
 const DEFAULT_PROFILE = require('../../assets/images/Default.webp');
 
@@ -48,8 +61,6 @@ const GroupRoomScreen = () => {
   const navigation = useNavigation();
   const route = useRoute();
   const { group } = route.params;
-  const colorScheme = useColorScheme();
-  const isDarkMode = colorScheme === 'dark';
 
   // State management with defaults
   const [messages, setMessages] = useState([]);
@@ -60,10 +71,7 @@ const GroupRoomScreen = () => {
   const [members, setMembers] = useState([]);
   const [showMembers, setShowMembers] = useState(false);
   const [selectedMessage, setSelectedMessage] = useState(null);
-  const [showReactions, setShowReactions] = useState(false);
   const [replyingTo, setReplyingTo] = useState(null);
-  const [showAllReactions, setShowAllReactions] = useState(false);
-  const [reactionsMessage, setReactionsMessage] = useState(null);
 
   // Refs
   const scrollViewRef = useRef(null);
@@ -226,7 +234,6 @@ const GroupRoomScreen = () => {
         senderId: currentUser.uid,
         senderName: currentUser.displayName || 'Anonymous',
         timestamp: Date.now(),
-        reactions: [],
         replyTo: replyingTo ? {
           id: replyingTo.id,
           senderName: replyingTo.senderName,
@@ -255,29 +262,11 @@ const GroupRoomScreen = () => {
     }
   };
 
-  const handleReaction = async (messageId, reaction) => {
-    if (!currentUser) return;
-    
-    try {
-      await addReaction(group.id, messageId, currentUser.uid, reaction);
-      if (isMountedRef.current) {
-        setShowReactions(false);
-        setSelectedMessage(null);
-      }
-    } catch (error) {
-      console.error('Error adding reaction:', error);
-      if (isMountedRef.current) {
-        Alert.alert('Error', 'Failed to add reaction. Please try again.');
-      }
-    }
-  };
-
   const handleDeleteMessage = async (messageId) => {
     try {
       await deleteMessage(group.id, messageId);
       if (isMountedRef.current) {
         setSelectedMessage(null);
-        setShowReactions(false);
       }
     } catch (error) {
       console.error('Error deleting message:', error);
@@ -285,12 +274,6 @@ const GroupRoomScreen = () => {
         Alert.alert('Error', 'Failed to delete message. Please try again.');
       }
     }
-  };
-
-  const handleReplyToMessage = (message) => {
-    setReplyingTo(message);
-    setShowReactions(false);
-    setSelectedMessage(null);
   };
 
   const formatMessageTime = (timestamp) => {
@@ -303,25 +286,41 @@ const GroupRoomScreen = () => {
     });
   };
 
-  const showReactionsList = (message) => {
-    setReactionsMessage(message);
-    setShowAllReactions(true);
-  };
-
-  // Memoized MessageBubble component to prevent unnecessary re-renders
+  // Enhanced Message Component - Same as ChatRoom
   const MessageBubble = React.memo(({ message }) => {
     const isCurrentUser = message.senderId === currentUser?.uid;
 
     return (
-      <View className={`${isCurrentUser ? 'self-end' : 'self-start'} mb-3 max-w-4/5`}>
+      <View style={{
+        alignSelf: isCurrentUser ? 'flex-end' : 'flex-start',
+        marginBottom: 16,
+        maxWidth: '80%',
+        marginHorizontal: 16,
+      }}>
         {/* Reply Section */}
         {message.replyTo && (
-          <View className="bg-gray-100 dark:bg-gray-800 rounded-t-lg px-2 py-1">
-            <Text className="text-gray-500 dark:text-gray-400 text-xs">
+          <View style={{
+            backgroundColor: COLORS.inputBg,
+            borderRadius: 12,
+            paddingHorizontal: 12,
+            paddingVertical: 8,
+            marginBottom: 4,
+            borderLeftWidth: 3,
+            borderLeftColor: COLORS.accent,
+          }}>
+            <Text style={{
+              color: COLORS.textMuted,
+              fontSize: 12,
+              fontWeight: '600',
+            }}>
               Replying to {message.replyTo.senderName}
             </Text>
-            <Text className="text-gray-700 dark:text-gray-300 text-xs">
-              {message.replyTo.text.length > 30 
+            <Text style={{
+              color: COLORS.textSecondary,
+              fontSize: 12,
+              marginTop: 2,
+            }}>
+              {message.replyTo.text && message.replyTo.text.length > 30 
                 ? `${message.replyTo.text.substring(0, 30)}...` 
                 : message.replyTo.text}
             </Text>
@@ -329,156 +328,70 @@ const GroupRoomScreen = () => {
         )}
 
         {!isCurrentUser && (
-          <Text className="text-gray-500 dark:text-gray-400 text-xs mb-1">
-            {message.senderName}
+          <Text style={{
+            color: COLORS.textMuted,
+            fontSize: 12,
+            marginBottom: 4,
+            fontWeight: '600',
+            marginLeft: 4,
+          }}>
+            {message.senderName || 'User'}
           </Text>
         )}
         
-        <View className="flex-row">
+        <View style={{ flexDirection: 'row', alignItems: 'flex-end' }}>
           <TouchableOpacity 
             onLongPress={() => {
-              setSelectedMessage(message);
-              setShowReactions(true);
+              if (isCurrentUser) {
+                Alert.alert(
+                  'Delete Message',
+                  'Are you sure you want to delete this message?',
+                  [
+                    { text: 'Cancel', style: 'cancel' },
+                    { 
+                      text: 'Delete', 
+                      style: 'destructive',
+                      onPress: () => handleDeleteMessage(message.id)
+                    }
+                  ]
+                );
+              } else {
+                setReplyingTo(message);
+              }
             }}
-            className={`${
-              isCurrentUser 
-                ? 'bg-blue-100 dark:bg-gray-700' 
-                : 'bg-gray-100 dark:bg-gray-800'
-            } rounded-xl p-2`}
+            style={{
+              backgroundColor: isCurrentUser ? COLORS.messageOwn : COLORS.messageOther,
+              borderRadius: 20,
+              paddingHorizontal: 16,
+              paddingVertical: 12,
+              shadowColor: COLORS.shadow,
+              shadowOffset: { width: 0, height: 2 },
+              shadowOpacity: 0.3,
+              shadowRadius: 4,
+              elevation: 2,
+            }}
             activeOpacity={0.7}
           >
-            <Text className={`${
-              isCurrentUser 
-                ? 'text-black dark:text-white' 
-                : 'text-black dark:text-white'
-            } text-base`}>
+            <Text style={{
+              color: isCurrentUser ? '#FFFFFF' : COLORS.text,
+              fontSize: 16,
+              lineHeight: 20,
+            }}>
               {message.text}
             </Text>
-            <Text className={`${
-              isCurrentUser 
-                ? 'text-gray-600 dark:text-gray-400' 
-                : 'text-gray-500 dark:text-gray-400'
-            } text-xs self-end mt-1`}>
+            <Text style={{
+              color: isCurrentUser ? 'rgba(255,255,255,0.8)' : COLORS.textMuted,
+              fontSize: 11,
+              marginTop: 4,
+              textAlign: 'right',
+            }}>
               {formatMessageTime(message.timestamp)}
             </Text>
           </TouchableOpacity>
-{/*           
-          <TouchableOpacity 
-            onPress={() => handleReplyToMessage(message)}
-            className="justify-end p-1"
-          >
-            <Ionicons 
-              name="arrow-undo-outline" 
-              size={18} 
-              color={isDarkMode ? '#B0B0B0' : '#757575'} 
-            />
-          </TouchableOpacity> */}
         </View>
-        
-        {/* Reaction Display */}
-        {message.reactions && message.reactions.length > 0 && (
-          <View className={`flex-row mt-1 bg-gray-100 bg-opacity-20 dark:bg-white dark:bg-opacity-10 rounded-xl p-1 ${isCurrentUser ? 'self-end' : 'self-start'}`}>
-            {message.reactions.slice(0, 3).map((reaction, index) => (
-              <Text key={index} className="text-base mr-1">
-                {reaction.emoji}
-              </Text>
-            ))}
-            {message.reactions.length > 3 && (
-              <TouchableOpacity onPress={() => showReactionsList(message)}>
-                <Text className="text-gray-600 dark:text-white">
-                  +{message.reactions.length - 3}
-                </Text>
-              </TouchableOpacity>
-            )}
-          </View>
-        )}
       </View>
     );
   });
-
-  // Using simplified modals with proper cleanup
-  const ReactionsModal = () => (
-    <Modal
-      visible={showReactions}
-      transparent={true}
-      animationType="fade"
-      onRequestClose={() => setShowReactions(false)}
-    >
-      <TouchableOpacity
-        activeOpacity={1}
-        className="flex-1 justify-end bg-black bg-opacity-50"
-        onPress={() => setShowReactions(false)}
-      >
-        <View className="bg-white dark:bg-gray-800 rounded-t-xl p-5">
-          <View className="flex-row justify-around mb-5">
-            {['👍', '❤️', '😂', '😮', '😢', '🔥'].map((emoji) => (
-              <TouchableOpacity 
-                key={emoji}
-                onPress={() => handleReaction(selectedMessage?.id, emoji)}
-              >
-                <Text className="text-2xl">{emoji}</Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-          
-          <TouchableOpacity 
-            onPress={() => handleReplyToMessage(selectedMessage)}
-            className="bg-blue-500 dark:bg-gray-700 p-4 rounded-lg items-center mb-2"
-          >
-            <Text className="text-white font-bold">Reply</Text>
-          </TouchableOpacity>
-          
-          {selectedMessage?.senderId === currentUser?.uid && (
-            <TouchableOpacity 
-              onPress={() => handleDeleteMessage(selectedMessage?.id)}
-              className="bg-red-500 p-4 rounded-lg items-center"
-            >
-              <Text className="text-white font-bold">Delete Message</Text>
-            </TouchableOpacity>
-          )}
-        </View>
-      </TouchableOpacity>
-    </Modal>
-  );
-
-  const AllReactionsModal = () => (
-    <Modal
-      visible={showAllReactions}
-      transparent={true}
-      animationType="fade"
-      onRequestClose={() => setShowAllReactions(false)}
-    >
-      <TouchableOpacity 
-        className="flex-1 bg-black bg-opacity-50 justify-center items-center"
-        activeOpacity={1}
-        onPress={() => setShowAllReactions(false)}
-      >
-        <View className="bg-white dark:bg-gray-800 rounded-xl p-4 w-4/5 max-h-3/5">
-          <Text className="font-bold text-base mb-2 text-black dark:text-white">
-            All Reactions
-          </Text>
-          
-          <ScrollView>
-            {reactionsMessage?.reactions?.map((reaction, index) => (
-              <View key={index} className="flex-row p-2 border-b border-gray-200 dark:border-gray-700">
-                <Text className="text-xl mr-2">{reaction.emoji}</Text>
-                <Text className="text-black dark:text-white">
-                  {reaction.senderName || 'User'}
-                </Text>
-              </View>
-            ))}
-          </ScrollView>
-          
-          <TouchableOpacity 
-            className="bg-gray-200 dark:bg-gray-700 items-center mt-2 p-2 rounded-lg"
-            onPress={() => setShowAllReactions(false)}
-          >
-            <Text className="text-black dark:text-white">Close</Text>
-          </TouchableOpacity>
-        </View>
-      </TouchableOpacity>
-    </Modal>
-  );
 
   const MembersModal = React.memo(() => (
     <Modal
@@ -486,43 +399,88 @@ const GroupRoomScreen = () => {
       animationType="fade"
       onRequestClose={() => setShowMembers(false)}
     >
-      <SafeAreaView className="flex-1 bg-white dark:bg-gray-900">
-        <View className="flex-row items-center p-4 border-b border-gray-200 dark:border-gray-800">
+      <SafeAreaView style={{
+        flex: 1,
+        backgroundColor: COLORS.background,
+      }}>
+        <View style={{
+          flexDirection: 'row',
+          alignItems: 'center',
+          padding: 20,
+          borderBottomWidth: 1,
+          borderBottomColor: COLORS.border,
+        }}>
           <TouchableOpacity onPress={() => setShowMembers(false)}>
             <Ionicons 
               name="close" 
               size={24} 
-              color={isDarkMode ? 'white' : 'black'} 
+              color={COLORS.text} 
             />
           </TouchableOpacity>
-          <Text className="text-lg font-bold ml-4 text-black dark:text-white">
+          <Text style={{
+            fontSize: 20,
+            fontWeight: '800',
+            marginLeft: 16,
+            color: COLORS.text,
+          }}>
             Group Members ({members.length})
           </Text>
         </View>
         
         <ScrollView 
-          className="flex-1"
+          style={{ flex: 1 }}
           contentContainerStyle={{ padding: 16 }}
         >
           {members.map((member) => (
-            <View key={member.id} className="flex-row items-center mb-3 bg-gray-100 dark:bg-gray-800 p-3 rounded-xl">
+            <View 
+              key={member.id} 
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                marginBottom: 16,
+                backgroundColor: COLORS.inputBg,
+                padding: 16,
+                borderRadius: 16,
+              }}
+            >
               <Image
                 source={member.profileImage ? { uri: member.photoURL } : DEFAULT_PROFILE}
-                className="w-12 h-12 rounded-full mr-3"
+                style={{
+                  width: 48,
+                  height: 48,
+                  borderRadius: 24,
+                  marginRight: 12,
+                }}
               />
-              <View className="flex-1">
-                <Text className="text-black dark:text-white font-medium">
+              <View style={{ flex: 1 }}>
+                <Text style={{
+                  color: COLORS.text,
+                  fontWeight: '600',
+                  fontSize: 16,
+                }}>
                   {member.fullName || 'Anonymous'}
                 </Text>
                 {member.status && (
-                  <Text className="text-gray-600 dark:text-gray-400 text-xs">
+                  <Text style={{
+                    color: COLORS.textMuted,
+                    fontSize: 14,
+                  }}>
                     {member.status}
                   </Text>
                 )}
               </View>
               {member.id === group.adminId && (
-                <View className="bg-blue-100 dark:bg-blue-900 px-2 py-1 rounded-xl">
-                  <Text className="text-blue-500 dark:text-blue-200 font-bold">
+                <View style={{
+                  backgroundColor: COLORS.accent,
+                  paddingHorizontal: 8,
+                  paddingVertical: 4,
+                  borderRadius: 12,
+                }}>
+                  <Text style={{
+                    color: '#FFFFFF',
+                    fontWeight: '700',
+                    fontSize: 12,
+                  }}>
                     Admin
                   </Text>
                 </View>
@@ -537,12 +495,23 @@ const GroupRoomScreen = () => {
   // Loading state
   if (loading) {
     return (
-      <View className="flex-1 justify-center items-center bg-white dark:bg-gray-900">
+      <View style={{
+        flex: 1,
+        justifyContent: 'center',
+        alignItems: 'center',
+        backgroundColor: COLORS.background,
+      }}>
         <ActivityIndicator 
           size="large" 
-          color={isDarkMode ? 'white' : '#2196F3'} 
+          color={COLORS.accent} 
         />
-        <Text className="mt-5 text-gray-600 dark:text-gray-400 text-center">
+        <Text style={{
+          marginTop: 20,
+          color: COLORS.textSecondary,
+          textAlign: 'center',
+          fontSize: 16,
+          fontWeight: '500',
+        }}>
           Loading chat...
         </Text>
       </View>
@@ -552,19 +521,44 @@ const GroupRoomScreen = () => {
   // Error state
   if (error) {
     return (
-      <View className="flex-1 justify-center items-center p-5 bg-white dark:bg-gray-900">
+      <View style={{
+        flex: 1,
+        justifyContent: 'center',
+        alignItems: 'center',
+        padding: 20,
+        backgroundColor: COLORS.background,
+      }}>
         <Ionicons 
           name="alert-circle-outline" 
           size={60} 
-          color={isDarkMode ? '#ff6b6b' : '#d32f2f'} 
+          color="#F87171" 
           style={{ marginBottom: 16 }}
         />
-        <Text className="text-red-500 dark:text-red-400 text-center mb-5 text-base">{error}</Text>
+        <Text style={{
+          color: '#F87171',
+          textAlign: 'center',
+          marginBottom: 20,
+          fontSize: 16,
+          lineHeight: 24,
+        }}>
+          {error}
+        </Text>
         <TouchableOpacity 
-          className="bg-gray-700 dark:bg-blue-500 px-5 py-2 rounded-lg"
+          style={{
+            backgroundColor: COLORS.accent,
+            paddingHorizontal: 20,
+            paddingVertical: 12,
+            borderRadius: 12,
+          }}
           onPress={fetchInitialData}
         >
-          <Text className="text-white font-bold">Retry</Text>
+          <Text style={{
+            color: '#FFFFFF',
+            fontWeight: '700',
+            fontSize: 16,
+          }}>
+            Retry
+          </Text>
         </TouchableOpacity>
       </View>
     );
@@ -572,30 +566,56 @@ const GroupRoomScreen = () => {
 
   // Main render
   return (
-    <SafeAreaView className="flex-1 bg-white dark:bg-gray-900">
+    <SafeAreaView style={{
+      flex: 1,
+      backgroundColor: COLORS.background,
+    }}>
       <StatusBar 
-        backgroundColor={isDarkMode ? '#1E1E1E' : '#2196F3'}
-        barStyle={isDarkMode ? 'light-content' : 'dark-content'}
+        backgroundColor={COLORS.accent}
+        barStyle="light-content"
       />
 
-      {/* Group Header */}
-      <View className="flex-row items-center p-4 bg-blue-500 dark:bg-gray-800">
+      {/* Group Header - Same as ChatRoom */}
+      <View style={{
+        flexDirection: 'row',
+        alignItems: 'center',
+        padding: 20,
+        backgroundColor: COLORS.accent,
+        shadowColor: COLORS.shadow,
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.8,
+        shadowRadius: 10,
+        elevation: 5,
+      }}>
         <TouchableOpacity 
           onPress={() => {
             cleanup();
             navigation.goBack();
           }} 
-          className="p-1"
+          style={{ padding: 4 }}
         >
-          <Ionicons name="arrow-back" size={24} color="white" />
+          <Ionicons name="arrow-back" size={24} color="#FFFFFF" />
         </TouchableOpacity>
         
         <TouchableOpacity 
-          className="flex-1 ml-4"
+          style={{
+            flex: 1,
+            marginLeft: 16,
+          }}
           onPress={() => setShowMembers(true)}
         >
-          <Text className="text-white text-lg font-bold">{group.name}</Text>
-          <Text className="text-white text-xs">
+          <Text style={{
+            color: '#FFFFFF',
+            fontSize: 20,
+            fontWeight: '800',
+          }}>
+            {group.name}
+          </Text>
+          <Text style={{
+            color: 'rgba(255,255,255,0.8)',
+            fontSize: 13,
+            fontWeight: '500',
+          }}>
             {members.length} {members.length === 1 ? 'Member' : 'Members'}
           </Text>
         </TouchableOpacity>
@@ -604,30 +624,50 @@ const GroupRoomScreen = () => {
       {/* Messages */}
       <ScrollView 
         ref={scrollViewRef}
-        className="flex-1 p-4 bg-white dark:bg-gray-900"
+        style={{
+          flex: 1,
+          backgroundColor: COLORS.background,
+        }}
         contentContainerStyle={{ 
+          padding: 16,
           paddingBottom: 20,
           flexGrow: messages.length === 0 ? 1 : undefined, 
           justifyContent: messages.length === 0 ? 'center' : undefined
         }}
-        removeClippedSubviews={false} // Change to false to fix view issues
+        removeClippedSubviews={false}
       >
         {messages.length > 0 ? (
           messages.map((message) => (
             <MessageBubble key={message.id} message={message} />
           ))
         ) : (
-          <View className="items-center bg-blue-50 bg-opacity-20 dark:bg-gray-800 p-4 rounded-xl">
+          <View style={{
+            alignItems: 'center',
+            backgroundColor: COLORS.inputBg,
+            padding: 32,
+            borderRadius: 20,
+          }}>
             <Ionicons 
               name="chatbubbles-outline" 
               size={64} 
-              color={isDarkMode ? '#555' : '#2196F3'} 
+              color={COLORS.accent} 
               style={{ marginBottom: 16 }}
             />
-            <Text className="text-lg font-medium text-blue-500 dark:text-white text-center mb-2">
+            <Text style={{
+              fontSize: 20,
+              fontWeight: '700',
+              color: COLORS.text,
+              textAlign: 'center',
+              marginBottom: 8,
+            }}>
               No messages yet
             </Text>
-            <Text className="text-gray-600 dark:text-gray-400 text-center">
+            <Text style={{
+              color: COLORS.textSecondary,
+              textAlign: 'center',
+              fontSize: 16,
+              lineHeight: 22,
+            }}>
               {getMotivationalQuote(group.name)}
             </Text>
           </View>
@@ -636,13 +676,30 @@ const GroupRoomScreen = () => {
 
       {/* Reply Preview */}
       {replyingTo && (
-        <View className="flex-row justify-between items-center px-4 py-2 bg-gray-100 dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700">
-          <View>
-            <Text className="text-black dark:text-white">
+        <View style={{
+          flexDirection: 'row',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          paddingHorizontal: 16,
+          paddingVertical: 12,
+          backgroundColor: COLORS.inputBg,
+          borderTopWidth: 1,
+          borderTopColor: COLORS.border,
+        }}>
+          <View style={{ flex: 1 }}>
+            <Text style={{
+              color: COLORS.text,
+              fontWeight: '600',
+              fontSize: 14,
+            }}>
               Replying to {replyingTo.senderName}
             </Text>
-            <Text className="text-gray-500 dark:text-gray-400">
-              {replyingTo.text.length > 40 
+            <Text style={{
+              color: COLORS.textMuted,
+              fontSize: 13,
+              marginTop: 2,
+            }}>
+              {replyingTo.text && replyingTo.text.length > 40 
                 ? `${replyingTo.text.substring(0, 40)}...` 
                 : replyingTo.text}
             </Text>
@@ -651,38 +708,59 @@ const GroupRoomScreen = () => {
             <Ionicons 
               name="close" 
               size={20} 
-              color={isDarkMode ? 'white' : 'black'} 
+              color={COLORS.textMuted} 
             />
           </TouchableOpacity>
         </View>
       )}
 
       {/* Message Input */}
-      <View className="flex-row items-center p-2 border-t border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900">
+      <View style={{
+        flexDirection: 'row',
+        alignItems: 'center',
+        padding: 16,
+        borderTopWidth: 1,
+        borderTopColor: COLORS.border,
+        backgroundColor: COLORS.background,
+      }}>
         <TextInput
           value={newMessage}
           onChangeText={setNewMessage}
           placeholder="Type a message..."
-          placeholderTextColor={isDarkMode ? '#888' : '#888'}
-          className="flex-1 bg-gray-100 dark:bg-gray-800 p-2 rounded-full px-4 text-black dark:text-white"
+          placeholderTextColor={COLORS.textMuted}
+          style={{
+            flex: 1,
+            backgroundColor: COLORS.inputBg,
+            paddingHorizontal: 16,
+            paddingVertical: 12,
+            borderRadius: 25,
+            color: COLORS.text,
+            fontSize: 16,
+          }}
         />
         <TouchableOpacity 
           onPress={handleSendMessage}
           disabled={!newMessage.trim()}
-          className={`ml-2 p-2 rounded-full ${
-            !newMessage.trim() 
-              ? 'bg-blue-300 dark:bg-gray-600' 
-              : 'bg-blue-500 dark:bg-blue-500'
-          }`}
+          style={{
+            marginLeft: 12,
+            width: 48,
+            height: 48,
+            borderRadius: 24,
+            backgroundColor: !newMessage.trim() ? COLORS.inputBg : COLORS.accent,
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}
         >
-          <Ionicons name="send" size={20} color="white" />
+          <Ionicons 
+            name="send" 
+            size={20} 
+            color={!newMessage.trim() ? COLORS.textMuted : '#FFFFFF'} 
+          />
         </TouchableOpacity>
       </View>
 
       {/* Modals */}
       <MembersModal />
-      <ReactionsModal />
-      <AllReactionsModal />
     </SafeAreaView>
   );
 };
