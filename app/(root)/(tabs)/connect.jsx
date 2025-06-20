@@ -1,4 +1,4 @@
-import React, { useState, useEffect,createContext } from "react";
+import React, { useState, useEffect,createContext, useCallback } from "react";
 import {
   View,
   Text,
@@ -14,12 +14,13 @@ import {
   StatusBar,
   Dimensions,
 } from "react-native";
-import { collection, query, where, getDocs, limit, addDoc, serverTimestamp, doc, getDoc } from "firebase/firestore";
-import { db, auth } from "../../../config/firebaseConfig";
+import { supabase } from "../../../config/supabaseConfig";
+import { useAuth } from "../../../context/authContext";
 import { MaterialIcons, Ionicons, Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { useNavigation, useRouter } from "expo-router";
 import { LinearGradient } from 'expo-linear-gradient';
+import { useSafeNavigation } from '../../../hooks/useSafeNavigation';
 
 // Updated color palette with gradients from bright to dull white
 const ThemeContext = React.createContext({
@@ -102,28 +103,42 @@ export default function Connect()  {
   const colorScheme = useColorScheme();
   const theme = colorScheme === "dark" ? darkTheme : lightTheme;
   const router = useRouter();
+  const { user: currentUser } = useAuth();
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const [totalConnections, setTotalConnections] = useState(0);
   const [selectedBranch, setSelectedBranch] = useState("");
   const [selectedInterests, setSelectedInterests] = useState([]);
-    const [isDarkMode, setIsDarkMode] = useState(false);
+  const [isDarkMode, setIsDarkMode] = useState(false);
   
   const [isFilterModalVisible, setFilterModalVisible] = useState(false);
   const [viewMode, setViewMode] = useState("grid");
   const [selectedUser, setSelectedUser] = useState(null);
   const [isProfileModalVisible, setProfileModalVisible] = useState(false);
   const navigation = useNavigation();
-  const currentUser = auth.currentUser;
   const windowWidth = Dimensions.get('window').width;
 
+  // Universal safe navigation
+  const { safeNavigate, safeBack } = useSafeNavigation({
+    modals: [
+      () => isProfileModalVisible && setProfileModalVisible(false),
+      () => isFilterModalVisible && setFilterModalVisible(false),
+      // Add other modal close functions here if needed
+    ],
+    onCleanup: () => {
+      // Clean up any FlatList or state here
+    }
+  });
+
   useEffect(() => {
-    loadRecommendations();
-  }, []);
+    if (currentUser?.uid) {
+      loadRecommendations();
+    }
+  }, [currentUser?.uid]);
 
   const filteredUsers = users.filter((user) => {
-    const matchesSearch = user.fullName?.toLowerCase().includes(searchQuery.toLowerCase()) || false;
+    const matchesSearch = user.full_name?.toLowerCase().includes(searchQuery.toLowerCase()) || false;
     const matchesBranch = !selectedBranch || user.branch === selectedBranch;
     const matchesInterests =
       selectedInterests.length === 0 ||
@@ -131,10 +146,34 @@ export default function Connect()  {
 
     return matchesSearch && matchesBranch && matchesInterests;
   });
+  
   const toggleTheme = () => {
     setIsDarkMode(!isDarkMode);
   };
+async function sendPushNotification() {
+  // import { createClient } from '@supabase/supabase-js'
+  // const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY)
+  const { data, error } = await supabase.functions.invoke('send-notification', {
+    body: { name: 'Functions' },
+  })
+}
+sendPushNotification();
 
+// In your React Native app
+// const sendNotification = async (type, postId, userId, commentId = null) => {
+//   console.log("Sending notification");  
+//   const response = await fetch('https://vsupqohqsgmpvzaszmtb.supabase.co/functions/v1/send-push-notification', {
+//     method: 'POST',
+//     headers: {
+//       'Content-Type': 'application/json',
+//       'Authorization': `Bearer ${supabaseAnonKey}`
+//     },
+//     body: JSON.stringify({ type, postId, userId, commentId })
+//   });
+//   console.log("response",   response);
+// };
+
+// sendNotification('like', '123', '456');
   // Helper function to get user bio or generate one
   const getUserBio = (user) => {
     if (user.about) return user.about;
@@ -144,62 +183,132 @@ export default function Connect()  {
     if (user.branch) return `Studying ${user.branch}`;
     return sampleBios[Math.floor(Math.random() * sampleBios.length)];
   };
+// net
+//   const testPushNotification = async () => {
+//   try {
+//     // Fetch all user IDs except the current user
+//     const { data: users, error: usersError } = await supabase
+//       .from('users')
+//       .select('id')
+//       .neq('id', currentUser.uid);
+
+//     if (usersError) {
+//       console.error('Error fetching users:', usersError);
+//       Alert.alert('Edge Function', `Error fetching users: ${usersError.message}`);
+//       return;
+//     }
+
+//     const user_ids = users?.map(u => u.id) || [];
+
+//     // Simulate a real post notification
+//     const payload = {
+//       user_ids,
+//       type: 'new_post',
+//       title: 'New Post!',
+//       message: 'A new post was created!',
+//       data: { post_id: 'test_post_id' }
+//     };
+
+//     console.log('Invoking send-push-notification with payload:', payload);
+
+//     const { data, error } = await supabase.functions.invoke('send-push-notification', {
+//       body: payload,
+//     });
+
+//     console.log('Edge function response:', { data, error });
+//     Alert.alert('Edge Function', error ? `Error: ${error.message}` : `Success: ${JSON.stringify(data)}`);
+//   } catch (err) {
+//     console.error('Error invoking edge function:', err);
+//     Alert.alert('Edge Function', `Error: ${err.message}`);
+//   }
+// };
+// testPushNotification();
 
   const loadRecommendations = async () => {
     try {
-      const currentUser = auth.currentUser;
-      if (!currentUser) return;
+      console.log('🔍 Loading user recommendations from Supabase...');
+      setLoading(true);
 
-      const userDocRef = doc(db, 'users', currentUser.uid);
-      const userDocSnap = await getDoc(userDocRef);
-      
-      if (!userDocSnap.exists()) {
-        console.log('No user data found');
+      if (!currentUser?.uid) {
+        console.log('❌ No current user found');
+        setLoading(false);
         return;
       }
 
-      const userData = userDocSnap.data();
-      
-      const usersRef = collection(db, 'users');
-      const q = query(
-        usersRef,
-        where('userId', '!=', currentUser.uid),
-        limit(50)
-      );
-      
-      const querySnapshot = await getDocs(q);
-      const recommendedUsers = [];
-      querySnapshot.forEach((doc) => {
-        const user = doc.data();
-        recommendedUsers.push({ id: doc.id, ...user });
-      });
-      
-      console.log('recommendedUsers',recommendedUsers.length,); 
+      // Fetch all users except current user from Supabase
+      const { data: usersData, error } = await supabase
+        .from('users')
+        .select(`
+          id,
+          username,
+          full_name,
+          profile_image,
+          branch,
+          passout_year,
+          interests,
+          college,
+          bio,
+          created_at
+        `)
+        .neq('id', currentUser.uid)
+        .limit(50);
 
-      setUsers(recommendedUsers);
-      setTotalConnections(recommendedUsers.length);
+      if (error) {
+        console.error('❌ Error fetching users:', error);
+        Alert.alert('Error', 'Failed to load users. Please try again.');
+        setLoading(false);
+        return;
+      }
+
+      console.log(`✅ Loaded ${usersData?.length || 0} users from Supabase`);
+      
+      // Transform data to match the expected format
+      const transformedUsers = usersData?.map(user => ({
+        id: user.id,
+        userId: user.id, // For backward compatibility
+        full_name: user.full_name,
+        fullName: user.full_name, // For backward compatibility
+        username: user.username,
+        profile_image: user.profile_image,
+        profileImage: user.profile_image, // For backward compatibility
+        branch: user.branch,
+        passout_year: user.passout_year,
+        passoutYear: user.passout_year, // For backward compatibility
+        interests: user.interests,
+        college: user.college,
+        about: user.bio,
+        bio: user.bio,
+        created_at: user.created_at
+      })) || [];
+
+      setUsers(transformedUsers);
+      setTotalConnections(transformedUsers.length);
       setLoading(false);
     } catch (error) {
-      console.error('Error loading recommendations:', error);
+      console.error('❌ Error loading recommendations:', error);
+      Alert.alert('Error', 'Failed to load recommendations. Please try again.');
       setLoading(false);
     }
   };
 
   const handleChatNavigation = async (user) => {
     try {
-      if (!user?.userId) {
+      if (!user?.userId && !user?.id) {
         Alert.alert('Error', 'Invalid recipient');
         return;
       }
       
-      const recipientId = user.userId;
-      const currentUser = auth.currentUser;
+      const recipientId = user.userId || user.id;
       
-      if (!currentUser) {
+      if (!currentUser?.uid) {
         Alert.alert('Error', 'You must be logged in to start a chat');
         return;
       }
   
+      // Import Firebase config for chats (since chats are still in Firebase)
+      const { collection, query, where, getDocs, addDoc, serverTimestamp } = await import('firebase/firestore');
+      const { db } = await import('../../../config/firebaseConfig');
+      
       // Check if chat already exists
       const chatsRef = collection(db, 'chats');
       const q = query(
@@ -300,7 +409,7 @@ const ProfileModal = ({ user, visible, onClose }) => (
             {/* User image and basic info */}  
             <View style={{ alignItems: "center", gap: 16 }}> 
               <Image
-                source={{ uri:user?.profileImage|| user?.photoUrl || "https://imgs.search.brave.com/SRTQLz_BmOq7xwzV7ls7bV62QzMZtDrGSacNS5G1d1A/rs:fit:500:0:0:0/g:ce/aHR0cHM6Ly9pY29u/cy52ZXJ5aWNvbi5j/b20vcG5nLzEyOC9t/aXNjZWxsYW5lb3Vz/LzNweC1saW5lYXIt/ZmlsbGV0LWNvbW1v/bi1pY29uL2RlZmF1/bHQtbWFsZS1hdmF0/YXItMS5wbmc" }}
+                source={{ uri:user?.profileImage|| user?.profile_image || user?.photoUrl || "https://imgs.search.brave.com/SRTQLz_BmOq7xwzV7ls7bV62QzMZtDrGSacNS5G1d1A/rs:fit:500:0:0:0/g:ce/aHR0cHM6Ly9pY29u/cy52ZXJ5aWNvbi5j/b20vcG5nLzEyOC9t/aXNjZWxsYW5lb3Vz/LzNweC1saW5lYXIt/ZmlsbGV0LWNvbW1v/bi1pY29uL2RlZmF1/bHQtbWFsZS1hdmF0/YXItMS5wbmc" }}
                 style={{ 
                   width: 90, 
                   height: 90, 
@@ -317,28 +426,52 @@ const ProfileModal = ({ user, visible, onClose }) => (
                   color: theme.text,
                   letterSpacing: 0.4,
                 }}>
-                  {user?.fullName}
+                  {user?.fullName || user?.full_name}
                 </Text>
-                <Text style={{ 
-                  fontSize: 15, 
-                  color: theme.primary,
-                  fontWeight: "600",
-                  letterSpacing: 0.2,
-                }}>
-                  {user?.branch}
-                </Text>
-                <Text style={{ 
-                  fontSize: 13, 
-                  color: theme.textSecondary,
-                  marginTop: 2,
-                }}>
-                  {user?.college?.name}
-                </Text>
+                
+                {/* Username if available */}
+                {user?.username && (
+                  <Text style={{ 
+                    fontSize: 14, 
+                    color: theme.textSecondary,
+                    fontWeight: '500',
+                  }}>
+                    @{user.username}
+                  </Text>
+                )}
+                
+                {/* Branch and Year */}
+                {user?.branch && (
+                  <Text style={{ 
+                    fontSize: 15, 
+                    color: theme.primary,
+                    fontWeight: "600",
+                    letterSpacing: 0.2,
+                  }}>
+                    {user.branch}
+                    {user?.passout_year && ` • ${user.passout_year}`}
+                  </Text>
+                )}
+                
+                {/* College */}
+                {user?.college && (
+                  <Text style={{ 
+                    fontSize: 13, 
+                    color: theme.textSecondary,
+                    marginTop: 2,
+                    textAlign: 'center'
+                  }}>
+                    {typeof user.college === 'object' 
+                      ? user.college.name 
+                      : user.college
+                    }
+                  </Text>
+                )}
               </View>
             </View>
 
-            {/* About section */}
-            {user?.about && (
+            {/* About/Bio section */}
+            {(user?.about || user?.bio) && (
               <View style={{ 
                 backgroundColor: `${theme.primary}08`,
                 borderRadius: 12,
@@ -355,7 +488,7 @@ const ProfileModal = ({ user, visible, onClose }) => (
                   lineHeight: 20,
                   textAlign: "left",
                 }}>
-                  "{user?.about}"
+                  "{user?.about || user?.bio}"
                 </Text>
               </View>
             )}
@@ -395,7 +528,7 @@ const ProfileModal = ({ user, visible, onClose }) => (
                         {interest}
                       </Text>
                     ))
-                  : user?.interests && (
+                  : user?.interests ? (
                       <Text 
                         style={{
                           fontSize: 13,
@@ -410,6 +543,14 @@ const ProfileModal = ({ user, visible, onClose }) => (
                         }}
                       >
                         {user?.interests}
+                      </Text>
+                    ) : (
+                      <Text style={{
+                        fontSize: 13,
+                        color: theme.textSecondary,
+                        fontStyle: 'italic'
+                      }}>
+                        No interests listed
                       </Text>
                     )
                 }
@@ -917,18 +1058,89 @@ const ProfileModal = ({ user, visible, onClose }) => (
         contentContainerStyle={{ padding: 12 }}
         showsVerticalScrollIndicator={false}
       >
-        {viewMode === "grid" ? (
-          <View style={{ 
-            flexDirection: "row", 
-            flexWrap: "wrap", 
-            justifyContent: "space-between",
+        {filteredUsers.length === 0 ? (
+          <View style={{
+            flex: 1,
+            alignItems: 'center',
+            justifyContent: 'center',
+            paddingVertical: 60,
+            paddingHorizontal: 40,
           }}>
-            {filteredUsers.map(user => renderGridItem(user))}
+            <LinearGradient
+              colors={['#8B5CF6', '#7C3AED']}
+              style={{
+                width: 80,
+                height: 80,
+                borderRadius: 40,
+                alignItems: 'center',
+                justifyContent: 'center',
+                marginBottom: 24,
+              }}
+            >
+              <Ionicons name="people-outline" size={40} color="white" />
+            </LinearGradient>
+            
+            <Text style={{
+              fontSize: 24,
+              fontWeight: '700',
+              color: theme.text,
+              textAlign: 'center',
+              marginBottom: 12,
+            }}>
+              No Users Found
+            </Text>
+            
+            <Text style={{
+              fontSize: 16,
+              color: theme.textSecondary,
+              textAlign: 'center',
+              lineHeight: 24,
+              marginBottom: 20,
+            }}>
+              Please share with your friends and engage with them to build your network!
+            </Text>
+            
+            <TouchableOpacity
+              onPress={() => {
+                // You can add share functionality here
+                Alert.alert('Share App', 'Share this amazing app with your friends!');
+              }}
+              style={{
+                backgroundColor: theme.primary,
+                paddingHorizontal: 24,
+                paddingVertical: 12,
+                borderRadius: 25,
+                flexDirection: 'row',
+                alignItems: 'center',
+                gap: 8,
+              }}
+            >
+              <Ionicons name="share-outline" size={20} color="white" />
+              <Text style={{
+                color: 'white',
+                fontSize: 16,
+                fontWeight: '600',
+              }}>
+                Share App
+              </Text>
+            </TouchableOpacity>
           </View>
         ) : (
-          <View>
-            {filteredUsers.map(user => renderListItem(user))}
-          </View>
+          <>
+            {viewMode === "grid" ? (
+              <View style={{ 
+                flexDirection: "row", 
+                flexWrap: "wrap", 
+                justifyContent: "space-between",
+              }}>
+                {filteredUsers.map(user => renderGridItem(user))}
+              </View>
+            ) : (
+              <View>
+                {filteredUsers.map(user => renderListItem(user))}
+              </View>
+            )}
+          </>
         )}
         
         {/* Bottom Spacing */}

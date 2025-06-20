@@ -13,8 +13,9 @@ import {
 } from "react-native";
 import { Ionicons, MaterialIcons } from "@expo/vector-icons";
 import { doc, deleteDoc, updateDoc, arrayUnion, serverTimestamp, arrayRemove } from "firebase/firestore";
-import { db, auth } from "../config/firebaseConfig";
+import { db } from "../config/firebaseConfig";
 import { AES, enc } from "react-native-crypto-js";
+import { useAuth } from "../context/authContext";
 
 const DRAG_THRESHOLD = 80;
 
@@ -257,6 +258,7 @@ const EditMessageModal = ({ visible, onClose, onSave, initialText }) => {
 
 export const MessageItem = React.memo(
   ({ item, onReply, recipientId, chatId, onBlock, disappearingMessages }) => {
+    const { user } = useAuth();
     const [timeLeft, setTimeLeft] = useState(null);
     const [showOptions, setShowOptions] = useState(false);
     const [showEditModal, setShowEditModal] = useState(false);
@@ -264,7 +266,7 @@ export const MessageItem = React.memo(
 
     const translateX = useRef(new Animated.Value(0)).current;
     const fadeAnim = useRef(new Animated.Value(0)).current;
-    const isOwnMessage = item.sender === auth.currentUser?.uid;
+    const isOwnMessage = item.sender === user?.uid;
 
     const ANIMATION_CONFIG = {
       FADE_IN_DURATION: 300,
@@ -467,7 +469,7 @@ export const MessageItem = React.memo(
                       color: isOwnMessage ? "rgba(255,255,255,0.7)" : COLORS.textSecondary,
                       fontWeight: "500",
                     }}>
-                      {item.replyTo.sender === auth.currentUser.uid ? "You" : item.replyTo.name}
+                      {item.replyTo.sender === user?.uid ? "You" : item.replyTo.name}
                     </Text>
                     <Text style={{ 
                       fontSize: 12, 
@@ -526,6 +528,7 @@ export const MessageItem = React.memo(
                   />
                 )}
               </View>
+              
             </View>
           </View>
         </Animated.View>

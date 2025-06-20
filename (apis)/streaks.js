@@ -1,513 +1,95 @@
-// // // app/(apis)/streaks.js
-
-// // import { doc, getDoc, setDoc, updateDoc, serverTimestamp } from 'firebase/firestore';
-// // import { db } from '../../config/firebaseConfig';
-
-// // /**
-// //  * Get the current streak data for a user
-// //  * @param {string} userId - The user ID
-// //  * @returns {Promise<Object>} The streak data
-// //  */
-// // export const getUserStreak = async (userId) => {
-// //   try {
-// //     const streakRef = doc(db, 'streaks', userId);
-// //     const streakDoc = await getDoc(streakRef);
-    
-// //     if (streakDoc.exists()) {
-// //       return streakDoc.data();
-// //     } else {
-// //       // Initialize streak data if it doesn't exist
-// //       const initialStreakData = {
-// //         currentStreak: 0,
-// //         highestStreak: 0,
-// //         lastPostDate: null,
-// //         createdAt: serverTimestamp(),
-// //         updatedAt: serverTimestamp(),
-// //       };
-      
-// //       await setDoc(streakRef, initialStreakData);
-// //       return initialStreakData;
-// //     }
-// //   } catch (error) {
-// //     console.error('Error getting user streak:', error);
-// //     throw error;
-// //   }
-// // };
-
-// // /**
-// //  * Increment a user's streak when they create a post
-// //  * @param {string} userId - The user ID
-// //  * @returns {Promise<Object>} Updated streak information
-// //  */
-// // export const incrementUserStreak = async (userId) => {
-// //   try {
-// //     const streakRef = doc(db, 'streaks', userId);
-// //     const streakDoc = await getDoc(streakRef);
-    
-// //     const now = new Date();
-// //     const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    
-// //     // Initialize streak data if it doesn't exist
-// //     if (!streakDoc.exists()) {
-// //       const initialStreak = {
-// //         currentStreak: 1,
-// //         highestStreak: 1,
-// //         lastPostDate: today.toISOString(),
-// //         createdAt: serverTimestamp(),
-// //         updatedAt: serverTimestamp(),
-// //       };
-      
-// //       await setDoc(streakRef, initialStreak);
-// //       return { ...initialStreak, streakIncreased: true };
-// //     }
-    
-// //     const streakData = streakDoc.data();
-// //     const lastPostDate = streakData.lastPostDate ? new Date(streakData.lastPostDate) : null;
-    
-// //     // If lastPostDate is null, this is the first post
-// //     if (!lastPostDate) {
-// //       const updatedStreak = {
-// //         currentStreak: 1,
-// //         highestStreak: Math.max(1, streakData.highestStreak || 0),
-// //         lastPostDate: today.toISOString(),
-// //         updatedAt: serverTimestamp(),
-// //       };
-      
-// //       await updateDoc(streakRef, updatedStreak);
-// //       return { ...updatedStreak, streakIncreased: true };
-// //     }
-    
-// //     // Get the date components (year, month, day) to compare dates properly
-// //     const lastPostDay = new Date(
-// //       lastPostDate.getFullYear(), 
-// //       lastPostDate.getMonth(), 
-// //       lastPostDate.getDate()
-// //     );
-    
-// //     // Yesterday's date for comparison
-// //     const yesterday = new Date(today);
-// //     yesterday.setDate(yesterday.getDate() - 1);
-    
-// //     // Check if the user has already posted today
-// //     if (lastPostDay.getTime() === today.getTime()) {
-// //       // Already posted today, no streak change
-// //       return { 
-// //         currentStreak: streakData.currentStreak,
-// //         highestStreak: streakData.highestStreak,
-// //         streakIncreased: false 
-// //       };
-// //     } 
-// //     // If they posted yesterday, increment streak
-// //     else if (lastPostDay.getTime() === yesterday.getTime()) {
-// //       const newStreak = streakData.currentStreak + 1;
-// //       const updatedStreak = {
-// //         currentStreak: newStreak,
-// //         highestStreak: Math.max(newStreak, streakData.highestStreak || 0),
-// //         lastPostDate: today.toISOString(),
-// //         updatedAt: serverTimestamp(),
-// //       };
-      
-// //       await updateDoc(streakRef, updatedStreak);
-// //       return { ...updatedStreak, streakIncreased: true };
-// //     } 
-// //     // If they missed a day or more, reset streak to 1
-// //     else {
-// //       const updatedStreak = {
-// //         currentStreak: 1,
-// //         highestStreak: streakData.highestStreak || 0,
-// //         lastPostDate: today.toISOString(),
-// //         updatedAt: serverTimestamp(),
-// //       };
-      
-// //       await updateDoc(streakRef, updatedStreak);
-// //       return { ...updatedStreak, streakIncreased: true };
-// //     }
-// //   } catch (error) {
-// //     console.error('Error incrementing user streak:', error);
-// //     throw error;
-// //   }
-// // };
-
-// // /**
-// //  * Reset a user's streak
-// //  * @param {string} userId - The user ID
-// //  * @returns {Promise<void>}
-// //  */
-// // export const resetUserStreak = async (userId) => {
-// //   try {
-// //     const streakRef = doc(db, 'streaks', userId);
-    
-// //     await updateDoc(streakRef, {
-// //       currentStreak: 0,
-// //       lastPostDate: null,
-// //       updatedAt: serverTimestamp(),
-// //     });
-// //   } catch (error) {
-// //     console.error('Error resetting user streak:', error);
-// //     throw error;
-// //   }
-// // };
-
-// // app/(apis)/streaks.js
-
-// import { doc, getDoc, setDoc, updateDoc, serverTimestamp } from 'firebase/firestore';
-// import { db } from '../../config/firebaseConfig';
-
-// /**
-//  * Get the current streak data for a user
-//  * @param {string} userId - The user ID
-//  * @returns {Promise<Object>} The streak data
-//  */
-// export const getUserStreak = async (userId) => {
-//   try {
-//     const streakRef = doc(db, 'streaks', userId);
-//     const streakDoc = await getDoc(streakRef);
-    
-//     if (streakDoc.exists()) {
-//       return streakDoc.data();
-//     } else {
-//       // Initialize streak data if it doesn't exist
-//       const initialStreakData = {
-//         currentStreak: 0,
-//         highestStreak: 0,
-//         lastActivityDate: null,
-//         activityCounts: {
-//           posts: 0,
-//           comments: 0,
-//           likes: 0
-//         },
-//         createdAt: serverTimestamp(),
-//         updatedAt: serverTimestamp(),
-//       };
-      
-//       await setDoc(streakRef, initialStreakData);
-//       return initialStreakData;
-//     }
-//   } catch (error) {
-//     console.error('Error getting user streak:', error);
-//     throw error;
-//   }
-// };
-
-// /**
-//  * Check if user has already performed any activity today to update streak
-//  * @param {string} userId - The user ID
-//  * @returns {Promise<boolean>} Whether user has already recorded an activity today
-//  */
-// const hasActivityToday = async (userId) => {
-//   try {
-//     const streakRef = doc(db, 'streaks', userId);
-//     const streakDoc = await getDoc(streakRef);
-    
-//     if (!streakDoc.exists()) return false;
-    
-//     const streakData = streakDoc.data();
-//     const lastActivityDate = streakData.lastActivityDate ? new Date(streakData.lastActivityDate) : null;
-    
-//     if (!lastActivityDate) return false;
-    
-//     const now = new Date();
-//     const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-//     const lastActivityDay = new Date(
-//       lastActivityDate.getFullYear(), 
-//       lastActivityDate.getMonth(), 
-//       lastActivityDate.getDate()
-//     );
-    
-//     return lastActivityDay.getTime() === today.getTime();
-//   } catch (error) {
-//     console.error('Error checking today activity:', error);
-//     return false;
-//   }
-// };
-
-// /**
-//  * Update user streak and activity counts based on activity type
-//  * @param {string} userId - The user ID
-//  * @param {string} activityType - Type of activity ('posts', 'comments', 'likes')
-//  * @returns {Promise<Object>} Updated streak information
-//  */
-// export const updateUserActivityStreak = async (userId, activityType) => {
-//   try {
-//     if (!userId) throw new Error('User ID is required');
-//     if (!['posts', 'comments', 'likes'].includes(activityType)) {
-//       throw new Error('Invalid activity type');
-//     }
-    
-//     const streakRef = doc(db, 'streaks', userId);
-//     const streakDoc = await getDoc(streakRef);
-    
-//     const now = new Date();
-//     const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    
-//     // Check if user already had an activity today
-//     const hadActivityToday = await hasActivityToday(userId);
-    
-//     // Initialize streak data if it doesn't exist
-//     if (!streakDoc.exists()) {
-//       const initialStreak = {
-//         currentStreak: 1,
-//         highestStreak: 1,
-//         lastActivityDate: today.toISOString(),
-//         activityCounts: {
-//           posts: activityType === 'posts' ? 1 : 0,
-//           comments: activityType === 'comments' ? 1 : 0,
-//           likes: activityType === 'likes' ? 1 : 0
-//         },
-//         createdAt: serverTimestamp(),
-//         updatedAt: serverTimestamp(),
-//       };
-      
-//       await setDoc(streakRef, initialStreak);
-//       return { ...initialStreak, streakIncreased: true };
-//     }
-    
-//     const streakData = streakDoc.data();
-//     const lastActivityDate = streakData.lastActivityDate ? new Date(streakData.lastActivityDate) : null;
-    
-//     // Always update the activity count
-//     const updatedActivityCounts = {
-//       ...streakData.activityCounts || {
-//         posts: 0,
-//         comments: 0,
-//         likes: 0
-//       }
-//     };
-//     updatedActivityCounts[activityType] = (updatedActivityCounts[activityType] || 0) + 1;
-    
-//     // If user already had an activity today, just update the activity count
-//     if (hadActivityToday) {
-//       const updateData = {
-//         activityCounts: updatedActivityCounts,
-//         updatedAt: serverTimestamp(),
-//       };
-      
-//       await updateDoc(streakRef, updateData);
-//       return { 
-//         currentStreak: streakData.currentStreak,
-//         highestStreak: streakData.highestStreak,
-//         streakIncreased: false,
-//         activityCounts: updatedActivityCounts
-//       };
-//     }
-    
-//     // If lastActivityDate is null, this is the first activity
-//     if (!lastActivityDate) {
-//       const updatedStreak = {
-//         currentStreak: 1,
-//         highestStreak: Math.max(1, streakData.highestStreak || 0),
-//         lastActivityDate: today.toISOString(),
-//         activityCounts: updatedActivityCounts,
-//         updatedAt: serverTimestamp(),
-//       };
-      
-//       await updateDoc(streakRef, updatedStreak);
-//       return { ...updatedStreak, streakIncreased: true };
-//     }
-    
-//     // Get the date components (year, month, day) to compare dates properly
-//     const lastActivityDay = new Date(
-//       lastActivityDate.getFullYear(), 
-//       lastActivityDate.getMonth(), 
-//       lastActivityDate.getDate()
-//     );
-    
-//     // Yesterday's date for comparison
-//     const yesterday = new Date(today);
-//     yesterday.setDate(yesterday.getDate() - 1);
-    
-//     // If they had activity yesterday, increment streak
-//     if (lastActivityDay.getTime() === yesterday.getTime()) {
-//       const newStreak = streakData.currentStreak + 1;
-//       const updatedStreak = {
-//         currentStreak: newStreak,
-//         highestStreak: Math.max(newStreak, streakData.highestStreak || 0),
-//         lastActivityDate: today.toISOString(),
-//         activityCounts: updatedActivityCounts,
-//         updatedAt: serverTimestamp(),
-//       };
-      
-//       await updateDoc(streakRef, updatedStreak);
-//       return { ...updatedStreak, streakIncreased: true };
-//     } 
-//     // If they missed a day or more, reset streak to 1
-//     else if (lastActivityDay.getTime() < yesterday.getTime()) {
-//       const updatedStreak = {
-//         currentStreak: 1,
-//         highestStreak: streakData.highestStreak || 0,
-//         lastActivityDate: today.toISOString(),
-//         activityCounts: updatedActivityCounts,
-//         updatedAt: serverTimestamp(),
-//       };
-      
-//       await updateDoc(streakRef, updatedStreak);
-//       return { ...updatedStreak, streakIncreased: true };
-//     }
-    
-//     // Shouldn't reach here, but just in case
-//     return { 
-//       currentStreak: streakData.currentStreak,
-//       highestStreak: streakData.highestStreak,
-//       streakIncreased: false,
-//       activityCounts: updatedActivityCounts
-//     };
-//   } catch (error) {
-//     console.error('Error updating user activity streak:', error);
-//     throw error;
-//   }
-// };
-
-// /**
-//  * Increment user streak for posting
-//  * @param {string} userId - The user ID
-//  * @returns {Promise<Object>} Updated streak information
-//  */
-// export const incrementUserStreak = async (userId) => {
-//   return updateUserActivityStreak(userId, 'posts');
-// };
-
-// /**
-//  * Increment user streak for commenting
-//  * @param {string} userId - The user ID
-//  * @returns {Promise<Object>} Updated streak information
-//  */
-// export const incrementCommentStreak = async (userId) => {
-//   return updateUserActivityStreak(userId, 'comments');
-// };
-
-// /**
-//  * Increment user streak for liking
-//  * @param {string} userId - The user ID
-//  * @returns {Promise<Object>} Updated streak information
-//  */
-// export const incrementLikeStreak = async (userId) => {
-//   return updateUserActivityStreak(userId, 'likes');
-// };
-
-// /**
-//  * Reset a user's streak
-//  * @param {string} userId - The user ID
-//  * @returns {Promise<void>}
-//  */
-// export const resetUserStreak = async (userId) => {
-//   try {
-//     const streakRef = doc(db, 'streaks', userId);
-    
-//     await updateDoc(streakRef, {
-//       currentStreak: 0,
-//       lastActivityDate: null,
-//       updatedAt: serverTimestamp(),
-//     });
-//   } catch (error) {
-//     console.error('Error resetting user streak:', error);
-//     throw error;
-//   }
-// };
-
-// /**
-//  * Get user's activity counts
-//  * @param {string} userId - The user ID
-//  * @returns {Promise<Object>} Activity counts
-//  */
-// export const getUserActivityCounts = async (userId) => {
-//   try {
-//     const streakData = await getUserStreak(userId);
-//     return streakData.activityCounts || {
-//       posts: 0,
-//       comments: 0,
-//       likes: 0
-//     };
-//   } catch (error) {
-//     console.error('Error getting user activity counts:', error);
-//     throw error;
-//   }
-// };
-
-// /**
-//  * Check if user has achieved milestone (target number of activities)
-//  * @param {string} userId - The user ID
-//  * @param {string} activityType - Type of activity ('posts', 'comments', 'likes')
-//  * @param {number} targetCount - Target count to check
-//  * @returns {Promise<boolean>} Whether the milestone is achieved
-//  */
-// export const checkActivityMilestone = async (userId, activityType, targetCount) => {
-//   try {
-//     const activityCounts = await getUserActivityCounts(userId);
-//     return (activityCounts[activityType] || 0) >= targetCount;
-//   } catch (error) {
-//     console.error('Error checking activity milestone:', error);
-//     return false;
-//   }
-// };
-import { doc, getDoc, setDoc, updateDoc, serverTimestamp } from 'firebase/firestore';
-import { db } from '../config/firebaseConfig';
+import { supabase } from '../config/supabaseConfig';
 
 /**
  * Get the current streak data for a user
  * @param {string} userId - The user ID
  * @returns {Promise<Object>} The streak data
  */
+
+// (NOBRIDGE) LOG  🖼️ No images found in post
 export const getUserStreak = async (userId) => {
   try {
-    const streakRef = doc(db, 'streaks', userId);
-    const streakDoc = await getDoc(streakRef);
-    
-    if (streakDoc.exists()) {
-      const streakData = streakDoc.data();
-      
-      // Check if streak needs to be reset due to inactivity
+    const { data, error } = await supabase
+      .from('streaks')
+      .select('*')
+      .eq('user_id', userId)
+      .single();
+
+    if (error && error.code !== 'PGRST116') {
+      throw error;
+    }
+
+    if (!data) {
+      // Create initial streak record if it doesn't exist
+      const initialStreak = {
+        user_id: userId,
+        current_streak: 0,
+        highest_streak: 0,
+        last_activity_date: null,
+        activity_counts: {
+          posts: 0,
+          comments: 0,
+          likes: 0
+        },
+        streak_active: false,
+      };
+
+      const { data: newStreak, error: insertError } = await supabase
+        .from('streaks')
+        .insert(initialStreak)
+        .select()
+        .single();
+
+      if (insertError) {
+        throw insertError;
+      }
+
+      return newStreak;
+    }
+
+    // Check if streak needs to be reset due to inactivity
+    if (data.last_activity_date) {
       const now = new Date();
       const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-      const lastActivityDate = streakData.lastActivityDate ? new Date(streakData.lastActivityDate) : null;
-      
-      // If there's no activity date or the last activity was more than a day ago, reset streak
-      if (!lastActivityDate) {
-        return streakData;
-      }
-      
+      const lastActivityDate = new Date(data.last_activity_date);
       const lastActivityDay = new Date(
         lastActivityDate.getFullYear(), 
         lastActivityDate.getMonth(), 
         lastActivityDate.getDate()
       );
-      
+
       const yesterday = new Date(today);
       yesterday.setDate(yesterday.getDate() - 1);
-      
+
       // If the last activity was before yesterday, reset streak
       if (lastActivityDay.getTime() < yesterday.getTime()) {
         const resetData = {
-          currentStreak: 0,
-          lastActivityDate: null,
-          updatedAt: serverTimestamp(),
+          current_streak: 0,
+          last_activity_date: null,
+          streak_active: false,
+          updated_at: new Date().toISOString(),
         };
-        
-        await updateDoc(streakRef, resetData);
-        return { ...streakData, ...resetData, streakActive: false };
+
+        const { data: updatedStreak, error: updateError } = await supabase
+          .from('streaks')
+          .update(resetData)
+          .eq('user_id', userId)
+          .select()
+          .single();
+
+        if (updateError) {
+          throw updateError;
+        }
+
+        return { ...updatedStreak, streakReset: true };
       }
-      
+
       // Check if they have activity today to mark streak as active
       const streakActive = lastActivityDay.getTime() === today.getTime();
-      return { ...streakData, streakActive };
-    } else {
-      // Initialize streak data if it doesn't exist
-      const initialStreakData = {
-        currentStreak: 0,
-        highestStreak: 0,
-        lastActivityDate: null,
-        activityCounts: {
-          posts: 0,
-          comments: 0,
-          likes: 0
-        },
-        streakActive: false,
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
-      };
-      
-      await setDoc(streakRef, initialStreakData);
-      return initialStreakData;
+      return { ...data, streak_active: streakActive };
     }
+
+    return data;
   } catch (error) {
     console.error('Error getting user streak:', error);
     throw error;
@@ -515,33 +97,38 @@ export const getUserStreak = async (userId) => {
 };
 
 /**
- * Check if user has already performed any activity today to update streak
+ * Check if user has activity today
  * @param {string} userId - The user ID
- * @returns {Promise<boolean>} Whether user has already recorded an activity today
+ * @returns {Promise<boolean>} Whether user has activity today
  */
-const hasActivityToday = async (userId) => {
+export const hasActivityToday = async (userId) => {
   try {
-    const streakRef = doc(db, 'streaks', userId);
-    const streakDoc = await getDoc(streakRef);
-    
-    if (!streakDoc.exists()) return false;
-    
-    const streakData = streakDoc.data();
-    const lastActivityDate = streakData.lastActivityDate ? new Date(streakData.lastActivityDate) : null;
-    
-    if (!lastActivityDate) return false;
-    
-    const now = new Date();
-    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const { data, error } = await supabase
+      .from('streaks')
+      .select('last_activity_date')
+      .eq('user_id', userId)
+      .single();
+
+    if (error && error.code !== 'PGRST116') {
+      throw error;
+    }
+
+    if (!data?.last_activity_date) {
+      return false;
+    }
+
+    const today = new Date();
+    const todayDate = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+    const lastActivityDate = new Date(data.last_activity_date);
     const lastActivityDay = new Date(
-      lastActivityDate.getFullYear(), 
-      lastActivityDate.getMonth(), 
+      lastActivityDate.getFullYear(),
+      lastActivityDate.getMonth(),
       lastActivityDate.getDate()
     );
-    
-    return lastActivityDay.getTime() === today.getTime();
+
+    return lastActivityDay.getTime() === todayDate.getTime();
   } catch (error) {
-    console.error('Error checking today activity:', error);
+    console.error('Error checking activity today:', error);
     return false;
   }
 };
@@ -558,130 +145,91 @@ export const updateUserActivityStreak = async (userId, activityType) => {
     if (!['posts', 'comments', 'likes'].includes(activityType)) {
       throw new Error('Invalid activity type');
     }
-    
-    const streakRef = doc(db, 'streaks', userId);
-    const streakDoc = await getDoc(streakRef);
-    
+
     const now = new Date();
     const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    
+
     // Check if user already had an activity today
     const hadActivityToday = await hasActivityToday(userId);
-    
-    // Initialize streak data if it doesn't exist
-    if (!streakDoc.exists()) {
-      const initialStreak = {
-        currentStreak: 1,
-        highestStreak: 1,
-        lastActivityDate: today.toISOString(),
-        activityCounts: {
-          posts: activityType === 'posts' ? 1 : 0,
-          comments: activityType === 'comments' ? 1 : 0,
-          likes: activityType === 'likes' ? 1 : 0
-        },
-        streakActive: true,
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
-      };
-      
-      await setDoc(streakRef, initialStreak);
-      return { ...initialStreak, streakIncreased: true, streakStarted: true };
-    }
-    
-    const streakData = streakDoc.data();
-    const lastActivityDate = streakData.lastActivityDate ? new Date(streakData.lastActivityDate) : null;
-    
+
+    // Get current streak data
+    let streakData = await getUserStreak(userId);
+
     // Always update the activity count
-    const updatedActivityCounts = {
-      ...streakData.activityCounts || {
+    let updatedActivityCounts = {
+      ...streakData.activity_counts || {
         posts: 0,
         comments: 0,
         likes: 0
       }
     };
+
+    // If last activity was not today, reset comment count for new day
+    if (streakData.last_activity_date) {
+      const lastActivityDate = new Date(streakData.last_activity_date);
+      const lastActivityDay = new Date(
+        lastActivityDate.getFullYear(),
+        lastActivityDate.getMonth(),
+        lastActivityDate.getDate()
+      );
+      if (lastActivityDay.getTime() !== today.getTime()) {
+        updatedActivityCounts.comments = 0;
+      }
+    }
+
     updatedActivityCounts[activityType] = (updatedActivityCounts[activityType] || 0) + 1;
-    
-    // If user already had an activity today, just update the activity count
-    if (hadActivityToday) {
-      const updateData = {
-        activityCounts: updatedActivityCounts,
-        updatedAt: serverTimestamp(),
-        streakActive: true
-      };
-      
-      await updateDoc(streakRef, updateData);
-      return { 
-        currentStreak: streakData.currentStreak,
-        highestStreak: streakData.highestStreak,
-        streakIncreased: false,
-        streakActive: true,
-        activityCounts: updatedActivityCounts
-      };
+
+    let streakIncreased = false;
+    let streakStarted = false;
+    let newCurrentStreak = streakData.current_streak || 0;
+    let newHighestStreak = streakData.highest_streak || 0;
+
+    if (activityType === 'comments') {
+      // Only increment streak if 5 comments made today
+      if (updatedActivityCounts.comments % 5 === 0) {
+        newCurrentStreak += 1;
+        streakIncreased = true;
+        if (newCurrentStreak > newHighestStreak) {
+          newHighestStreak = newCurrentStreak;
+        }
+      }
+    } else if (activityType === 'posts') {
+      // For posts, increment streak as before
+      if (!hadActivityToday) {
+        newCurrentStreak += 1;
+        streakIncreased = true;
+        if (newCurrentStreak > newHighestStreak) {
+          newHighestStreak = newCurrentStreak;
+        }
+      }
     }
-    
-    // If lastActivityDate is null, this is the first activity
-    if (!lastActivityDate) {
-      const updatedStreak = {
-        currentStreak: 1,
-        highestStreak: Math.max(1, streakData.highestStreak || 0),
-        lastActivityDate: today.toISOString(),
-        activityCounts: updatedActivityCounts,
-        streakActive: true,
-        updatedAt: serverTimestamp(),
-      };
-      
-      await updateDoc(streakRef, updatedStreak);
-      return { ...updatedStreak, streakIncreased: true, streakStarted: true };
+
+    const updateData = {
+      current_streak: newCurrentStreak,
+      highest_streak: newHighestStreak,
+      last_activity_date: today.toISOString().split('T')[0], // Store as date only
+      activity_counts: updatedActivityCounts,
+      streak_active: true,
+      updated_at: new Date().toISOString(),
+    };
+
+    const { data: updatedStreak, error } = await supabase
+      .from('streaks')
+      .update(updateData)
+      .eq('user_id', userId)
+      .select()
+      .single();
+
+    if (error) {
+      throw error;
     }
-    
-    // Get the date components (year, month, day) to compare dates properly
-    const lastActivityDay = new Date(
-      lastActivityDate.getFullYear(), 
-      lastActivityDate.getMonth(), 
-      lastActivityDate.getDate()
-    );
-    
-    // Yesterday's date for comparison
-    const yesterday = new Date(today);
-    yesterday.setDate(yesterday.getDate() - 1);
-    
-    // If they had activity yesterday, increment streak
-    if (lastActivityDay.getTime() === yesterday.getTime()) {
-      const newStreak = streakData.currentStreak + 1;
-      const updatedStreak = {
-        currentStreak: newStreak,
-        highestStreak: Math.max(newStreak, streakData.highestStreak || 0),
-        lastActivityDate: today.toISOString(),
-        activityCounts: updatedActivityCounts,
-        streakActive: true,
-        updatedAt: serverTimestamp(),
-      };
-      
-      await updateDoc(streakRef, updatedStreak);
-      return { ...updatedStreak, streakIncreased: true, streakContinued: true };
-    } 
-    // If they missed a day or more, reset streak to 1
-    else if (lastActivityDay.getTime() < yesterday.getTime()) {
-      const updatedStreak = {
-        currentStreak: 1,
-        highestStreak: streakData.highestStreak || 0,
-        lastActivityDate: today.toISOString(),
-        activityCounts: updatedActivityCounts,
-        streakActive: true,
-        updatedAt: serverTimestamp(),
-      };
-      
-      await updateDoc(streakRef, updatedStreak);
-      return { ...updatedStreak, streakIncreased: true, streakRestarted: true };
-    }
-    
-    // Shouldn't reach here, but just in case
+
     return { 
-      currentStreak: streakData.currentStreak,
-      highestStreak: streakData.highestStreak,
-      streakIncreased: false,
-      streakActive: true,
-      activityCounts: updatedActivityCounts
+      ...updatedStreak, 
+      streakIncreased, 
+      streakStarted,
+      activityType,
+      previousStreak: streakData.current_streak || 0
     };
   } catch (error) {
     console.error('Error updating user activity streak:', error);
@@ -690,47 +238,115 @@ export const updateUserActivityStreak = async (userId, activityType) => {
 };
 
 /**
- * Increment user streak for posting
- * @param {string} userId - The user ID
- * @returns {Promise<Object>} Updated streak information
+ * Get streak leaderboard for a college or globally
+ * @param {string} collegeName - Optional college name to filter by
+ * @param {number} limit - Number of results to return
+ * @returns {Promise<Array>} Array of top streak users
  */
-export const incrementUserStreak = async (userId) => {
-  return updateUserActivityStreak(userId, 'posts');
+export const getStreakLeaderboard = async (collegeName = null, limit = 10) => {
+  try {
+    let query = supabase
+      .from('streaks')
+      .select(`
+        *,
+        users!inner (
+          id,
+          full_name,
+          username,
+          profile_image,
+          college
+        )
+      `)
+      .order('current_streak', { ascending: false })
+      .limit(limit);
+
+    // If college is specified, filter by college
+    if (collegeName) {
+      query = query.eq('users.college->name', collegeName);
+    }
+
+    const { data, error } = await query;
+
+    if (error) {
+      throw error;
+    }
+
+    return data?.map(item => ({
+      ...item,
+      user: item.users
+    })) || [];
+  } catch (error) {
+    console.error('Error getting streak leaderboard:', error);
+    return [];
+  }
 };
 
 /**
- * Increment user streak for commenting
+ * Get user's streak rank globally or within college
  * @param {string} userId - The user ID
- * @returns {Promise<Object>} Updated streak information
+ * @param {string} collegeName - Optional college name to filter by
+ * @returns {Promise<Object>} User's rank information
  */
-export const incrementCommentStreak = async (userId) => {
-  return updateUserActivityStreak(userId, 'comments');
+export const getUserStreakRank = async (userId, collegeName = null) => {
+  try {
+    const userStreak = await getUserStreak(userId);
+    
+    let query = supabase
+      .from('streaks')
+      .select('current_streak', { count: 'exact' })
+      .gt('current_streak', userStreak.current_streak || 0);
+
+    if (collegeName) {
+      query = query.eq('users.college->name', collegeName);
+    }
+
+    const { count, error } = await query;
+
+    if (error) {
+      throw error;
+    }
+
+    return {
+      rank: (count || 0) + 1,
+      currentStreak: userStreak.current_streak || 0,
+      streakActive: userStreak.streak_active || false
+    };
+  } catch (error) {
+    console.error('Error getting user streak rank:', error);
+    return {
+      rank: null,
+      currentStreak: 0,
+      streakActive: false
+    };
+  }
 };
 
 /**
- * Increment user streak for liking
+ * Reset user's streak (admin function or if user wants to restart)
  * @param {string} userId - The user ID
- * @returns {Promise<Object>} Updated streak information
- */
-export const incrementLikeStreak = async (userId) => {
-  return updateUserActivityStreak(userId, 'likes');
-};
-
-/**
- * Reset a user's streak
- * @param {string} userId - The user ID
- * @returns {Promise<void>}
+ * @returns {Promise<Object>} Updated streak data
  */
 export const resetUserStreak = async (userId) => {
   try {
-    const streakRef = doc(db, 'streaks', userId);
-    
-    await updateDoc(streakRef, {
-      currentStreak: 0,
-      lastActivityDate: null,
-      streakActive: false,
-      updatedAt: serverTimestamp(),
-    });
+    const resetData = {
+      current_streak: 0,
+      last_activity_date: null,
+      streak_active: false,
+      updated_at: new Date().toISOString(),
+    };
+
+    const { data, error } = await supabase
+      .from('streaks')
+      .update(resetData)
+      .eq('user_id', userId)
+      .select()
+      .single();
+
+    if (error) {
+      throw error;
+    }
+
+    return data;
   } catch (error) {
     console.error('Error resetting user streak:', error);
     throw error;
@@ -738,37 +354,126 @@ export const resetUserStreak = async (userId) => {
 };
 
 /**
- * Get user's activity counts
- * @param {string} userId - The user ID
- * @returns {Promise<Object>} Activity counts
+ * Get streak statistics for analytics
+ * @param {string} collegeName - Optional college name to filter by
+ * @returns {Promise<Object>} Streak statistics
  */
-export const getUserActivityCounts = async (userId) => {
+export const getStreakStatistics = async (collegeName = null) => {
   try {
-    const streakData = await getUserStreak(userId);
-    return streakData.activityCounts || {
-      posts: 0,
-      comments: 0,
-      likes: 0
+    let query = supabase
+      .from('streaks')
+      .select('current_streak, highest_streak, streak_active');
+
+    if (collegeName) {
+      query = query.eq('users.college->name', collegeName);
+    }
+
+    const { data, error } = await query;
+
+    if (error) {
+      throw error;
+    }
+
+    const stats = {
+      totalUsers: data?.length || 0,
+      activeStreaks: data?.filter(s => s.streak_active).length || 0,
+      averageCurrentStreak: 0,
+      averageHighestStreak: 0,
+      longestCurrentStreak: 0,
+      longestAllTimeStreak: 0,
     };
+
+    if (data && data.length > 0) {
+      stats.averageCurrentStreak = data.reduce((sum, s) => sum + (s.current_streak || 0), 0) / data.length;
+      stats.averageHighestStreak = data.reduce((sum, s) => sum + (s.highest_streak || 0), 0) / data.length;
+      stats.longestCurrentStreak = Math.max(...data.map(s => s.current_streak || 0));
+      stats.longestAllTimeStreak = Math.max(...data.map(s => s.highest_streak || 0));
+    }
+
+    return stats;
   } catch (error) {
-    console.error('Error getting user activity counts:', error);
-    throw error;
+    console.error('Error getting streak statistics:', error);
+    return {
+      totalUsers: 0,
+      activeStreaks: 0,
+      averageCurrentStreak: 0,
+      averageHighestStreak: 0,
+      longestCurrentStreak: 0,
+      longestAllTimeStreak: 0,
+    };
   }
 };
 
 /**
- * Check if user has achieved milestone (target number of activities)
+ * Increment user streak (simplified version)
  * @param {string} userId - The user ID
- * @param {string} activityType - Type of activity ('posts', 'comments', 'likes')
- * @param {number} targetCount - Target count to check
- * @returns {Promise<boolean>} Whether the milestone is achieved
+ * @returns {Promise<Object>} Updated streak information
  */
-export const checkActivityMilestone = async (userId, activityType, targetCount) => {
+export const incrementUserStreak = async (userId) => {
+  return await updateUserActivityStreak(userId, 'posts');
+};
+
+/**
+ * Subscribe to streak changes for real-time updates
+ * @param {string} userId - The user ID
+ * @param {Function} callback - Callback function for updates
+ * @returns {Object} Subscription object
+ */
+export const subscribeToStreakChanges = (userId, callback) => {
+  return supabase
+    .channel(`streak_changes_${userId}`)
+    .on('postgres_changes', {
+      event: '*',
+      schema: 'public',
+      table: 'streaks',
+      filter: `user_id=eq.${userId}`
+    }, callback)
+    .subscribe();
+};
+
+/**
+ * Get the unique days a user has been active in the last 7 days
+ * @param {string} userId - The user ID
+ * @returns {Promise<string[]>} An array of active date strings (e.g., ['2023-10-26'])
+ */
+export const getWeeklyActivity = async (userId) => {
   try {
-    const activityCounts = await getUserActivityCounts(userId);
-    return (activityCounts[activityType] || 0) >= targetCount;
+    const today = new Date();
+    const sevenDaysAgo = new Date(today);
+    sevenDaysAgo.setDate(today.getDate() - 6); // Include today + 6 past days
+    sevenDaysAgo.setHours(0, 0, 0, 0);
+
+    const { data, error } = await supabase
+      .from('comments')
+      .select('created_at')
+      .eq('user_id', userId)
+      .gte('created_at', sevenDaysAgo.toISOString());
+
+    if (error) {
+      throw error;
+    }
+
+    // Get unique dates by converting each timestamp to a YYYY-MM-DD string
+    const activeDates = new Set(
+      data.map(comment => new Date(comment.created_at).toISOString().split('T')[0])
+    );
+
+    return Array.from(activeDates);
   } catch (error) {
-    console.error('Error checking activity milestone:', error);
-    return false;
+    console.error('Error fetching weekly activity:', error);
+    return [];
   }
 };
+
+export default {
+  getUserStreak,
+  hasActivityToday,
+  updateUserActivityStreak,
+  getStreakLeaderboard,
+  getUserStreakRank,
+  resetUserStreak,
+  getStreakStatistics,
+  incrementUserStreak,
+  subscribeToStreakChanges,
+  getWeeklyActivity
+}; 

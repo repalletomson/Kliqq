@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, memo, useCallback } from 'react';
 import {
   View,
   Text,
@@ -16,6 +16,8 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useNavigation } from '@react-navigation/native';
 import { useRouter } from 'expo-router';
 import { useAuth } from '../context/authContext';
+import { safeNavigate } from '../utiles/safeNavigation';
+import { supabase } from '../config/supabaseConfig';
 import {
   addComment,
   getComments,
@@ -31,7 +33,10 @@ import {
   getShareCount,
   savePost,
   unsavePost,
+  hasUserLiked,
+  hasUserSaved,
 } from '../(apis)/post';
+import EventEmitter from '../utiles/EventEmitter';
 
 const { width, height } = Dimensions.get('window');
 const DEFAULT_AVATAR = 'https://cdn-icons-png.flaticon.com/512/149/149071.png';
@@ -55,16 +60,32 @@ const formatTimestamp = (timestamp) => {
   if (!timestamp) return "";
 
   const now = new Date();
-  const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
+  let date;
+  
+  // Handle different timestamp formats
+  if (timestamp.toDate) {
+    date = timestamp.toDate();
+  } else if (typeof timestamp === 'string') {
+    date = new Date(timestamp);
+  } else if (timestamp instanceof Date) {
+    date = timestamp;
+  } else {
+    return "";
+  }
+
   const diffMs = now - date;
   const diffMins = Math.floor(diffMs / 60000);
   const diffHrs = Math.floor(diffMins / 60);
   const diffDays = Math.floor(diffHrs / 24);
+  const diffWeeks = Math.floor(diffDays / 7);
+  const diffMonths = Math.floor(diffDays / 30);
 
   if (diffMins < 1) return "just now";
   if (diffMins < 60) return `${diffMins}m ago`;
   if (diffHrs < 24) return `${diffHrs}h ago`;
   if (diffDays < 7) return `${diffDays}d ago`;
+  if (diffWeeks < 4) return `${diffWeeks}w ago`;
+  if (diffMonths < 12) return `${diffMonths}mo ago`;
 
   return date.toLocaleDateString();
 };
@@ -91,7 +112,7 @@ const HotPostBanner = ({ onPress }) => {
   ) : null;
 };
 
-const PostCard = ({ post, isDetailView = false, isHotPost = false }) => {
+const PostCard = ({ post, isDetailView = false, isHotPost = false, enableRealTime = true }) => {
   const { user } = useAuth();
   const navigation = useNavigation();
   const router = useRouter();
@@ -112,9 +133,9 @@ const PostCard = ({ post, isDetailView = false, isHotPost = false }) => {
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
   
   // Permissions and Ownership
-  const isOwner = post.userId === user?.uid;
+  const isOwner = post.userId === user?.uid || post.user_id === user?.uid;
 
-  const handleShare = async () => {
+  const handleShare = useCallback(async () => {
     try {
       const result = await Share.share({
         title: post.title || `${post.userName}'s KLiqq`,
@@ -127,31 +148,68 @@ const PostCard = ({ post, isDetailView = false, isHotPost = false }) => {
     } catch (error) {
       Alert.alert("Error", "Failed to share post");
     }
-  };
+  }, [post.id, post.title, post.userName, post.content]);
 
-  const handleSavePost = async () => {
+  const handleSavePost = useCallback(async () => {
+    if (!user) {
+      Alert.alert("Please login", "You need to be logged in to save posts.");
+      return;
+    }
     try {
       if (isSaved) {
-        await unsavePost(post.id, user.uid);
-        setIsSaved(false);
+        // User wants to unsave
+        const result = await unsavePost(post.id, user.uid);
+        if (result !== false) { // unsavePost returns true on success
+          setIsSaved(false);
+        }
       } else {
-        await savePost(post.id, user.uid);
-        setIsSaved(true);
+        // User wants to save
+        const result = await savePost(post.id, user.uid);
+        
+        // Check if save was actually added (result will be null if already saved)
+        if (result !== null) {
+          setIsSaved(true);
+        } else {
+          // Save already exists, sync the UI state
+          console.log("Save already exists, syncing UI state");
+          setIsSaved(true);
+        }
       }
     } catch (error) {
       console.error("Save post error:", error);
-      Alert.alert("Error", "Unable to save post. Please try again.");
+      
+      // If there's a duplicate key error, it means the save exists but UI is out of sync
+      if (error.code === '23505') {
+        console.log("Duplicate key error - syncing save state");
+        setIsSaved(true);
+      } else {
+        Alert.alert("Error", "Unable to save post. Please try again.");
+      }
     }
-  };
+  }, [post.id, user, isSaved]);
 
   const renderImageGrid = () => {
-    if (!post?.mediaUrls?.length) return null;
+    // Check for images in multiple possible properties
+    const images = post?.mediaUrls || post?.images || [];
+    
+    // console.log('🖼️ PostCard renderImageGrid:', {
+    //   postId: post?.id,
+    //   mediaUrls: post?.mediaUrls,
+    //   images: post?.images,
+    //   finalImages: images,
+    //   imageCount: images.length
+    // });
+    
+    if (!images?.length) {
+      return null;
+    }
 
-    const images = post.mediaUrls;
     const imageCount = images.length;
+    // console.log(`🖼️ Rendering ${imageCount} images for post ${post?.id}`);
 
     // For single image, show without slider
     if (imageCount === 1) {
+      // console.log('🖼️ Rendering single image:', images[0]);
       return (
         <View className="mt-4 rounded-xl overflow-hidden">
           <TouchableOpacity
@@ -168,8 +226,9 @@ const PostCard = ({ post, isDetailView = false, isHotPost = false }) => {
         </View>
       );
     }
-
+    // Sample posts with images
     // For multiple images, show Instagram-style slider
+    // console.log(`🖼️ Rendering ${imageCount} images in slider`);
     return (
       <View className="mt-4 rounded-xl overflow-hidden relative">
         <ScrollView
@@ -286,62 +345,232 @@ const PostCard = ({ post, isDetailView = false, isHotPost = false }) => {
   };
 
   const OptionsMenu = () => (
-    <Modal transparent={true} visible={showOptionsMenu} onRequestClose={() => setShowOptionsMenu(false)}>
-      <TouchableOpacity className="flex-1 bg-black/50" activeOpacity={1} onPress={() => setShowOptionsMenu(false)}>
+    <Modal 
+      transparent={true} 
+      visible={showOptionsMenu} 
+      onRequestClose={() => setShowOptionsMenu(false)}
+      animationType="fade"
+    >
+      <TouchableOpacity 
+        className="flex-1" 
+        activeOpacity={1} 
+        onPress={() => setShowOptionsMenu(false)}
+        style={{ 
+          justifyContent: 'flex-end',
+          backgroundColor: 'rgba(0,0,0,0.5)' 
+        }}
+      >
         <View
-          className="absolute top-16 right-6"
           style={{
             backgroundColor: colors.cardBackground,
-            borderRadius: 16,
+            borderTopLeftRadius: 24,
+            borderTopRightRadius: 24,
+            paddingBottom: 40,
+            borderWidth: 1,
+            borderColor: 'rgba(255,255,255,0.1)',
             shadowColor: colors.shadow,
-            shadowOffset: { width: 0, height: 8 },
+            shadowOffset: { width: 0, height: -4 },
             shadowOpacity: 1,
             shadowRadius: 20,
             elevation: 10,
-            zIndex: 5000,
           }}
         >
+          {/* Handle bar */}
+          <View style={{
+            width: 40,
+            height: 4,
+            backgroundColor: 'rgba(255,255,255,0.3)',
+            borderRadius: 2,
+            alignSelf: 'center',
+            marginTop: 12,
+            marginBottom: 24,
+          }} />
+
+          <Text style={{
+            color: colors.text,
+            fontSize: 18,
+            fontWeight: '700',
+            textAlign: 'center',
+            marginBottom: 24,
+          }}>
+            Post Options
+          </Text>
+
           {isOwner ? (
             <>
               <TouchableOpacity
-                className="px-6 py-4"
-                onPress={() => {
-                  handleDeletePost();
-                  setShowOptionsMenu(false);
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  paddingHorizontal: 24,
+                  paddingVertical: 16,
                 }}
-              >
-                <Text style={{ color: "#F87171", fontSize: 16, fontWeight: '600' }}>Delete Post</Text>
-              </TouchableOpacity>
-              <View style={{ height: 1, backgroundColor: 'rgba(255,255,255,0.1)', marginHorizontal: 16 }} />
-              <TouchableOpacity
-                className="px-6 py-4"
-                onPress={() => {
-                  setShowOptionsMenu(false);
-                }}
-              >
-                <Text style={{ color: colors.text, fontSize: 16, fontWeight: '600' }}>Edit Post</Text>
-              </TouchableOpacity>
-            </>
-          ) : (
-            <>
-              <TouchableOpacity
-                className="px-6 py-4"
-                onPress={() => {
-                  handleReportPost();
-                  setShowOptionsMenu(false);
-                }}
-              >
-                <Text style={{ color: "#F87171", fontSize: 16, fontWeight: '600' }}>Report Post</Text>
-              </TouchableOpacity>
-              <View style={{ height: 1, backgroundColor: 'rgba(255,255,255,0.1)', marginHorizontal: 16 }} />
-              <TouchableOpacity
-                className="px-6 py-4"
                 onPress={() => {
                   handleSavePost();
                   setShowOptionsMenu(false);
                 }}
               >
-                <Text style={{ color: colors.text, fontSize: 16, fontWeight: '600' }}>{isSaved ? "Unsave Post" : "Save Post"}</Text>
+                <View style={{
+                  width: 40,
+                  height: 40,
+                  borderRadius: 20,
+                  backgroundColor: 'rgba(139, 92, 246, 0.15)',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  marginRight: 16,
+                }}>
+                  <Ionicons 
+                    name={isSaved ? "bookmark" : "bookmark-outline"} 
+                    size={20} 
+                    color={colors.accent} 
+                  />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ color: colors.text, fontSize: 16, fontWeight: '600' }}>
+                    {isSaved ? "Unsave Post" : "Save Post"}
+                  </Text>
+                  <Text style={{ color: colors.textMuted, fontSize: 12, marginTop: 2 }}>
+                    {isSaved ? "Remove from saved posts" : "Save for later viewing"}
+                  </Text>
+                </View>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  paddingHorizontal: 24,
+                  paddingVertical: 16,
+                }}
+                onPress={() => {
+                  setShowOptionsMenu(false);
+                  // TODO: Implement edit functionality
+                }}
+              >
+                <View style={{
+                  width: 40,
+                  height: 40,
+                  borderRadius: 20,
+                  backgroundColor: 'rgba(59, 130, 246, 0.15)',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  marginRight: 16,
+                }}>
+                  <Ionicons name="create-outline" size={20} color="#3B82F6" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ color: colors.text, fontSize: 16, fontWeight: '600' }}>
+                    Edit Post
+                  </Text>
+                  <Text style={{ color: colors.textMuted, fontSize: 12, marginTop: 2 }}>
+                    Make changes to your post
+                  </Text>
+                </View>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  paddingHorizontal: 24,
+                  paddingVertical: 16,
+                }}
+                onPress={() => {
+                  handleDeletePost();
+                  setShowOptionsMenu(false);
+                }}
+              >
+                <View style={{
+                  width: 40,
+                  height: 40,
+                  borderRadius: 20,
+                  backgroundColor: 'rgba(239, 68, 68, 0.15)',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  marginRight: 16,
+                }}>
+                  <Ionicons name="trash-outline" size={20} color="#EF4444" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ color: "#EF4444", fontSize: 16, fontWeight: '600' }}>
+                    Delete Post
+                  </Text>
+                  <Text style={{ color: colors.textMuted, fontSize: 12, marginTop: 2 }}>
+                    This action cannot be undone
+                  </Text>
+                </View>
+              </TouchableOpacity>
+            </>
+          ) : (
+            <>
+              <TouchableOpacity
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  paddingHorizontal: 24,
+                  paddingVertical: 16,
+                }}
+                onPress={() => {
+                  handleSavePost();
+                  setShowOptionsMenu(false);
+                }}
+              >
+                <View style={{
+                  width: 40,
+                  height: 40,
+                  borderRadius: 20,
+                  backgroundColor: 'rgba(139, 92, 246, 0.15)',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  marginRight: 16,
+                }}>
+                  <Ionicons 
+                    name={isSaved ? "bookmark" : "bookmark-outline"} 
+                    size={20} 
+                    color={colors.accent} 
+                  />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ color: colors.text, fontSize: 16, fontWeight: '600' }}>
+                    {isSaved ? "Unsave Post" : "Save Post"}
+                  </Text>
+                  <Text style={{ color: colors.textMuted, fontSize: 12, marginTop: 2 }}>
+                    {isSaved ? "Remove from saved posts" : "Save for later viewing"}
+                  </Text>
+                </View>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  paddingHorizontal: 24,
+                  paddingVertical: 16,
+                }}
+                onPress={() => {
+                  handleReportPost();
+                  setShowOptionsMenu(false);
+                }}
+              >
+                <View style={{
+                  width: 40,
+                  height: 40,
+                  borderRadius: 20,
+                  backgroundColor: 'rgba(239, 68, 68, 0.15)',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  marginRight: 16,
+                }}>
+                  <Ionicons name="flag-outline" size={20} color="#EF4444" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ color: "#EF4444", fontSize: 16, fontWeight: '600' }}>
+                    Report Post
+                  </Text>
+                  <Text style={{ color: colors.textMuted, fontSize: 12, marginTop: 2 }}>
+                    Report inappropriate content
+                  </Text>
+                </View>
               </TouchableOpacity>
             </>
           )}
@@ -354,14 +583,24 @@ const PostCard = ({ post, isDetailView = false, isHotPost = false }) => {
     const fetchInitialData = async () => {
       try {
         setIsLoading(true);
-        const fetchedComments = await getComments(post.id);
-        setComments(fetchedComments);
+        // Use the dedicated comment count from the post data
+        setComments([]); // We don't need to load all comments in PostCard
 
-        const fetchedLikes = await getLikes(post.id);
-        setLikes(fetchedLikes.length);
+        // Use the dedicated like count from the post data and check user's like status efficiently
+        setLikes(post.like_count || 0);
 
-        const userLiked = fetchedLikes.some((like) => like.userId === user?.uid);
-        setIsLiked(userLiked);
+        // Use the more efficient hasUserLiked function instead of fetching all likes
+        if (user?.uid) {
+          const userLiked = await hasUserLiked(post.id, user.uid);
+          setIsLiked(userLiked);
+          
+          // Check if user has saved this post
+          const userSaved = await hasUserSaved(post.id, user.uid);
+          setIsSaved(userSaved);
+        } else {
+          setIsLiked(false);
+          setIsSaved(false);
+        }
 
         const fetchedViews = await getViews(post.id);
         setPostViews(fetchedViews);
@@ -372,10 +611,81 @@ const PostCard = ({ post, isDetailView = false, isHotPost = false }) => {
         setIsLoading(false);
       } catch (error) {
         console.error("Error fetching initial data:", error);
+        setIsLoading(false);
       }
     };
 
     fetchInitialData();
+
+    // Set up real-time subscriptions only if enabled (disabled for search results to prevent conflicts)
+    let postChannel = null;
+    let likesChannel = null;
+    
+    if (enableRealTime) {
+      // Use a unique channel name with timestamp to prevent conflicts
+      const channelId = `${post.id}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+      
+      postChannel = supabase
+        .channel(`post-updates-${channelId}`)
+        .on('postgres_changes', 
+          { 
+            event: 'UPDATE', 
+            schema: 'public', 
+            table: 'posts',
+            filter: `id=eq.${post.id}`
+          }, 
+          (payload) => {
+            console.log('📊 Post update for post:', post.id, payload.new);
+            
+            // Update like count and comment count from the updated post data
+            if (payload.new) {
+              setLikes(payload.new.like_count || 0);
+              // Comment count will be reflected through the post.comment_count in UI
+            }
+          }
+        )
+        .subscribe();
+
+      // Set up real-time subscription for likes
+      likesChannel = supabase
+        .channel(`post-likes-${channelId}`)
+        .on('postgres_changes', 
+          { 
+            event: '*', 
+            schema: 'public', 
+            table: 'likes',
+            filter: `post_id=eq.${post.id}`
+          }, 
+          async (payload) => {
+            console.log('❤️ Like update for post:', post.id, payload.eventType);
+            
+            if (payload.eventType === 'INSERT') {
+              // Check if this like is from the current user
+              if (payload.new?.user_id === user?.uid) {
+                setIsLiked(true);
+              }
+              setLikes(prev => prev + 1);
+            } else if (payload.eventType === 'DELETE') {
+              // Check if this unlike is from the current user
+              if (payload.old?.user_id === user?.uid) {
+                setIsLiked(false);
+              }
+              setLikes(prev => Math.max(0, prev - 1));
+            }
+          }
+        )
+        .subscribe();
+    }
+
+    return () => {
+      console.log('🔌 Cleaning up PostCard subscriptions for post:', post.id);
+      if (postChannel) {
+        supabase.removeChannel(postChannel);
+      }
+      if (likesChannel) {
+        supabase.removeChannel(likesChannel);
+      }
+    };
   }, [post.id, user]);
 
   const SkeletonLoader = () => (
@@ -476,17 +786,48 @@ const PostCard = ({ post, isDetailView = false, isHotPost = false }) => {
       setIsLikeProcessing(true);
 
       if (isLiked) {
-        await removeLike(post.id, user);
-        setLikes((prev) => Math.max(0, prev - 1));
-        setIsLiked(false);
+        // User wants to unlike
+        const result = await removeLike(post.id, user);
+        if (result !== false) { // removeLike returns true on success, false on failure
+          setLikes((prev) => Math.max(0, prev - 1));
+          setIsLiked(false);
+        }
       } else {
-        await addLike(post.id, user);
-        setLikes((prev) => prev + 1);
-        setIsLiked(true);
+        // User wants to like
+        const result = await addLike(post.id, user);
+        
+        // Check if like was actually added (result will be null if already liked)
+        if (result !== null) {
+          setLikes((prev) => prev + 1);
+          setIsLiked(true);
+        } else {
+          // Like already exists, sync the UI state
+          console.log("Like already exists, syncing UI state");
+          setIsLiked(true);
+          
+          // Re-fetch the actual like count to ensure accuracy
+          const actualLikes = await getLikes(post.id);
+          setLikes(actualLikes.length);
+        }
       }
     } catch (error) {
       console.error("Like error:", error);
-      Alert.alert("Error", "Unable to process like. Please try again.");
+      
+      // If there's a duplicate key error, it means the like exists but UI is out of sync
+      if (error.code === '23505') {
+        console.log("Duplicate key error - syncing UI state");
+        setIsLiked(true);
+        
+        // Re-fetch to get accurate count
+        try {
+          const actualLikes = await getLikes(post.id);
+          setLikes(actualLikes.length);
+        } catch (syncError) {
+          console.error("Error syncing like state:", syncError);
+        }
+      } else {
+        Alert.alert("Error", "Unable to process like. Please try again.");
+      }
     } finally {
       setTimeout(() => {
         setIsLikeProcessing(false);
@@ -522,9 +863,26 @@ const PostCard = ({ post, isDetailView = false, isHotPost = false }) => {
   };
 
   const handleDeletePost = async () => {
+    if (!post?.id || !user?.uid) {
+      console.error("Delete post error: Missing post ID or user ID");
+      Alert.alert("Error", "Unable to delete post. Missing required information.");
+      return;
+    }
+
     try {
-      await deletePost(post.id);
+      console.log("Deleting post:", post.id, "by user:", user.uid);
+      await deletePost(post.id, user.uid);
+      
+      // Emit an event to notify other components (like the feed)
+      EventEmitter.emit('post-deleted', post.id);
+
       Alert.alert("Success", "Post deleted successfully");
+
+      // If on detail view, navigate back
+      if (isDetailView) {
+        router.back();
+      }
+
     } catch (error) {
       console.error("Delete post error:", error);
       Alert.alert("Error", "Unable to delete post. Please try again.");
@@ -566,7 +924,13 @@ const PostCard = ({ post, isDetailView = false, isHotPost = false }) => {
 
   return (
     <View>
-      {isHotPost && <HotPostBanner onPress={() => router.push(`/postDetailView/${post.id}`)} />}
+              {isHotPost && <HotPostBanner onPress={async () => {
+          try {
+            await safeNavigate(`/postDetailView/${post.id}`, { push: true });
+          } catch (error) {
+            router.push(`/postDetailView/${post.id}`);
+          }
+        }} />}
 
       <View
         style={{
@@ -591,10 +955,16 @@ const PostCard = ({ post, isDetailView = false, isHotPost = false }) => {
         }}>
           <TouchableOpacity 
             style={{ flexDirection: "row", alignItems: "center", flex: 1 }}
-            onPress={() => router.push(`/profile/${post.userId}`)}
+            onPress={async () => {
+              try {
+                await safeNavigate(`/profile/${post.userId}`, { push: true });
+              } catch (error) {
+                router.push(`/profile/${post.userId}`);
+              }
+            }}
           >
             <Image
-              source={{ uri: post.userAvatar || DEFAULT_AVATAR }}
+              source={{ uri: post.userAvatar || post.user_avatar || DEFAULT_AVATAR }}
               style={{
                 width: 52,
                 height: 52,
@@ -611,11 +981,27 @@ const PostCard = ({ post, isDetailView = false, isHotPost = false }) => {
                   marginBottom: 3,
                 }}
               >
-                {post.userName}
+                {post.userName || post.user_name || 'Anonymous'}
                 {isHotPost && <Text style={{ fontSize: 14, color: colors.accent, marginLeft: 8 }}>{" 🔥"}</Text>}
               </Text>
+              
+              {/* Show college name for non-anonymous posts */}
+              {(post.userName !== 'Anonymous' && post.user_name !== 'Anonymous') && (post.college || post.userCollege) && (
+                <Text style={{ 
+                  fontSize: 13, 
+                  color: colors.textMuted, 
+                  fontWeight: '500',
+                  marginBottom: 2 
+                }}>
+                  {typeof (post.college || post.userCollege) === 'object' 
+                    ? (post.college?.name || post.userCollege?.name || '')
+                    : (post.college || post.userCollege)
+                  }
+                </Text>
+              )}
+              
               <Text style={{ fontSize: 14, color: colors.textSecondary, fontWeight: '500' }}>
-                {formatTimestamp(post.createdAt)}
+                {formatTimestamp(post.createdAt || post.created_at)}
               </Text>
             </View>
           </TouchableOpacity>
@@ -641,24 +1027,16 @@ const PostCard = ({ post, isDetailView = false, isHotPost = false }) => {
 
         {/* Post Content */}
         <View style={{ paddingHorizontal: 20, paddingBottom: 16 }}>
-        {post.title && (
-          <TouchableOpacity onPress={() => router.push(`/postDetailView/${post.id}`)}>
-            <Text
-              style={{
-                fontSize: 20,
-                fontWeight: "800",
-                color: colors.text,
-                marginBottom: 12,
-                lineHeight: 26,
-              }}
-            >
-              {post.title}
-            </Text>
-          </TouchableOpacity>
-        )}
+
 
         <TouchableOpacity
-          onPress={() => router.push(`/postDetailView/${post.id}`)}
+          onPress={async () => {
+            try {
+              await safeNavigate(`/postDetailView/${post.id}`, { push: true });
+            } catch (error) {
+              router.push(`/postDetailView/${post.id}`);
+            }
+          }}
           style={
             isHotPost
               ? {
@@ -743,10 +1121,16 @@ const PostCard = ({ post, isDetailView = false, isHotPost = false }) => {
                 minWidth: 60,
                 justifyContent: "center",
               }}
-            onPress={() => router.push(`/postDetailView/${post.id}`)}
+            onPress={async () => {
+              try {
+                await safeNavigate(`/postDetailView/${post.id}`, { push: true });
+              } catch (error) {
+                router.push(`/postDetailView/${post.id}`);
+              }
+            }}
           >
               <Ionicons name="chatbubble-outline" size={20} color={colors.textSecondary} />
-              {comments.length > 0 && (
+              {(post.comment_count || 0) > 0 && (
             <Text
               style={{
                     marginLeft: 8,
@@ -755,7 +1139,7 @@ const PostCard = ({ post, isDetailView = false, isHotPost = false }) => {
                     fontWeight: "600",
               }}
             >
-              {comments.length}
+              {post.comment_count || 0}
             </Text>
               )}
           </TouchableOpacity>
@@ -817,4 +1201,15 @@ const PostCard = ({ post, isDetailView = false, isHotPost = false }) => {
   );
 };
 
-export default PostCard;
+// Memoize PostCard for performance optimization
+export default memo(PostCard, (prevProps, nextProps) => {
+  // Custom comparison function for better performance
+  return (
+    prevProps.post.id === nextProps.post.id &&
+    prevProps.post.like_count === nextProps.post.like_count &&
+    prevProps.post.comment_count === nextProps.post.comment_count &&
+    prevProps.isDetailView === nextProps.isDetailView &&
+    prevProps.isHotPost === nextProps.isHotPost &&
+    prevProps.enableRealTime === nextProps.enableRealTime
+  );
+});

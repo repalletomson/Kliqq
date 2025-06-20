@@ -62,7 +62,6 @@ exports.handleNewPostNotification = onDocumentCreated(
     const postId = event.params.postId;
 
     if (!post || !post.college) {
-      console.warn(`Invalid post data for ID: ${postId}`);
       return null;
     }
 
@@ -127,7 +126,6 @@ exports.handleNewPostNotification = onDocumentCreated(
 
       return { success: true, ...tokenAnalytics };
     } catch (error) {
-      console.error("Error:", error);
       await db.collection("posts").doc(postId).update({
         notificationError: error.toString(),
         notificationSent: false,
@@ -171,7 +169,6 @@ exports.handleLikeNotification = onDocumentUpdated(
       }
       return null;
     } catch (error) {
-      console.error("Like notification error:", error);
       return { success: false, error: error.message };
     }
   },
@@ -197,9 +194,9 @@ exports.onMessageCreate = onDocumentCreated(
           lastUpdated: admin.firestore.FieldValue.serverTimestamp(),
         },
         { merge: true },
-      );
+              );
     } catch (error) {
-      console.error("Message create error:", error);
+      // Silently handle error
     }
   },
 );
@@ -227,7 +224,7 @@ exports.onMessageRead = onDocumentUpdated(
         );
       }
     } catch (error) {
-      console.error("Message read error:", error);
+      // Silently handle error
     }
   },
 );
@@ -262,7 +259,7 @@ exports.onCommentCreate = onDocumentCreated(
         { merge: true },
       );
     } catch (error) {
-      console.error("Comment error:", error);
+      // Silently handle error
     }
   },
 );
@@ -298,7 +295,7 @@ exports.onReplyCreate = onDocumentCreated(
         { merge: true },
       );
     } catch (error) {
-      console.error("Reply error:", error);
+      // Silently handle error
     }
   },
 );
@@ -319,7 +316,7 @@ exports.onNotificationRead = onDocumentUpdated(
         );
       }
     } catch (error) {
-      console.error("Notification read error:", error);
+      // Silently handle error
     }
   },
 );
@@ -368,7 +365,6 @@ exports.handleChatMessageNotification = onDocumentCreated(
       }
       return null;
     } catch (error) {
-      console.error("Chat notification error:", error);
       return { success: false, error: error.message };
     }
   },

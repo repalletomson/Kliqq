@@ -6,686 +6,624 @@ import { db, storage } from '../config/firebaseConfig';
 import { Alert } from 'react-native';
 import { useAuth } from '../context/authContext';
 // import firestore from '@react-native-firebase/firestore'
-export  async function createPost( postData, mediaFile,user) {
-  // Ensure this is correctly fetching the authenticated user
+import { supabase, supabaseStorage } from '../config/supabaseConfig';
+import { incrementUserStreak, updateUserActivityStreak } from './streaks';
+import { uploadMultipleImagesWithTUS } from './tusUpload';
+
+// Create a new post with Supabase
+export async function createPost(postData, mediaFiles, user) {
+  
   try {
-    // const { user } = useAuth();
-    let mediaUrl = null;
-// console.log("postAPP data",userData,postData,mediaFile)
-    if (mediaFile) {
-      const response = await fetch(mediaFile.uri);
-      const blob = await response.blob();
-      
-      const fileName = `${Date.now()}_${mediaFile.fileName || 'image.jpg'}`;
-      const storageRef = ref(storage, `posts/${userData.userId}/${fileName}`);
-      
-      const uploadTask = await uploadBytes(storageRef, blob);
-      mediaUrl = await getDownloadURL(uploadTask.ref);
+    let imageUrls = [];
+    
+    // Check authentication first
+    const { data: { user: currentUser }, error: authError } = await supabase.auth.getUser();
+
+    // Upload multiple images using TUS resumable upload (more reliable)
+    if (mediaFiles && Array.isArray(mediaFiles) && mediaFiles.length > 0) {
+      try {
+        // Use the new TUS upload method for better reliability
+        imageUrls = await uploadMultipleImagesWithTUS(mediaFiles, user?.uid);
+        
+        // If no images were uploaded successfully, show a specific alert
+        if (mediaFiles.length > 0 && imageUrls.length === 0) {
+          Alert.alert(
+            'Image Upload Failed', 
+            'Unable to upload images using resumable upload. Your post will be created without images.',
+            [{ text: 'OK', style: 'default' }]
+          );
+        } else if (imageUrls.length < mediaFiles.length) {
+          Alert.alert(
+            'Partial Upload Success', 
+            `${imageUrls.length} out of ${mediaFiles.length} images were uploaded successfully.`,
+            [{ text: 'Continue', style: 'default' }]
+          );
+        }
+      } catch (uploadError) {
+        Alert.alert(
+          'Image Upload Error', 
+          'There was an issue uploading your images. Your post will be created without images.',
+          [{ text: 'OK', style: 'default' }]
+        );
+        
+        // Reset imageUrls to empty array if upload fails
+        imageUrls = [];
+      }
     }
-      
+
+    // Create post object
     const post = {
-      userId: user?.userId ,
+      user_id: user?.uid,
+      title: postData?.title,
       content: postData?.content,
-      category: postData?.category,
-      mediaUrl,
-      createdAt: new Date().toISOString(),
-      expiresAt: new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString(),
-      likes: 0,
-      comments: [],
-      // Add user information to the post
-      userName: user?.fullName || 'Anonymous',
-      userAvatar:user?.profileUrl || 'https://via.placeholder.com/40',
+      images: imageUrls,
+      video_url: null,
+      like_count: 0,
+      comment_count: 0,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+      // User info (denormalized for performance)
+      user_name: user?.full_name || user?.fullName || 'Anonymous',
+      user_avatar: user?.profile_image || user?.profileImage || 'https://via.placeholder.com/40',
     };
 
-    // console.log("Creating post with data:", post ,"user",user);
+    // Insert post into Supabase
+    const { data, error } = await supabase
+      .from('posts')
+      .insert(post)
+      .select()
+      .single();
 
-    if (user?.uid) {
-    const addedPost = await addDoc(collection(db, 'posts'), post);
-    return addedPost;
+    if (error) {
+      throw error;
     }
+    
+    // Update user streak (ONLY ONCE PER DAY)
+    try {
+      const streakResult = await incrementUserStreak(user?.uid);
+    } catch (streakError) {
+      // Don't fail the post creation if streak update fails
+    }
+
+    // Call the send-notification edge function after post creation
+    // try {
+    //   const { data: notifData, error: notifError } = await supabase.functions.invoke('send-notification', {
+    //     body: {
+    //       table: 'posts',
+    //       record: {
+    //         user_id: post.user_id,
+    //         // Add other fields if needed
+    //       },
+    //     },
+    //   });
+    //   if (notifError) {
+    //     console.error('Notification error:', notifError);
+    //   } else {
+    //     console.log('Notification sent:', notifData);
+    //   }
+    // } catch (notifCatchError) {
+    //   console.error('Error invoking notification function:', notifCatchError);
+    // }
+
+    return { id: data.id, ...data };
+
   } catch (error) {
-     console.log("Error creating post:", error.message);
+    Alert.alert('Error', 'Failed to create post. Please try again.');
+    throw error;
   }
 }
 
-// export async function getFeedPosts() {
-//   try {
-//     const now = new Date().toISOString();
-//     const q = query(
-//       collection(db, 'posts'),
-//       where('expiresAt', '>', now),
-//       orderBy('createdAt', 'desc')
-//     );
-
-//     const snapshot = await getDocs(q);
-//     return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-//   } catch (error) {
-//     console.error("Error fetching feed posts:", error.message);
-//     return []; // Returning an empty array as a fallback
-//   }
-// }
-// export const incrementViews = async (postId) => {
-//   const postRef = doc(db, 'posts', postId);
-//   return increment(postRef, 'views', 1);
-// };
+// Get feed posts from Supabase
 export const getFeedPosts = async () => {
   try {
-    console.log("Fetching feed posts...");
-    const now = new Date().toISOString();
-    const q = query(
-      collection(db, 'posts')
-    );
+    // console.log("📊 === GET FEED POSTS STARTED ===");
+    // console.log("📊 Fetching feed posts from Supabase...");
+    
+    const { data, error } = await supabase
+      .from('posts')
+      .select(`
+        *,
+        users:user_id (
+          full_name,
+          profile_image,
+          username
+        )
+      `)
+      .order('created_at', { ascending: false });
 
-    const snapshot = await getDocs(q);
-    return snapshot.docs.map(doc => ({ 
-      id: doc.id, 
-      ...doc.data(),
-      createdAt: doc.data().createdAt || now,
-      expiresAt: doc.data().expiresAt || new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString()
-    }));
+    if (error) {
+      throw error;
+    }
+
+    // console.log(`✅ Fetched ${data.length} posts from database`);
+    
+    // Add debugging for images in posts
+    const postsWithImages = data.filter(post => post.images && post.images.length > 0);
+    // console.log(`🖼️ Posts with images: ${postsWithImages.length}/${data.length}`);
+    
+    // if (postsWithImages.length > 0) {
+    //   console.log('🖼️ Sample posts with images:');
+    //   postsWithImages.slice(0, 3).forEach((post, index) => {
+    //     console.log(`🖼️ Post ${index + 1}:`, {
+    //       id: post.id,
+    //       content: post.content?.substring(0, 50) + '...',
+    //       images: post.images,
+    //       imageCount: post.images?.length || 0
+    //     });
+    //   });
+    // } else {
+    //   console.log('🖼️ No posts with images found');
+    // }
+    
+    // console.log("✅ === GET FEED POSTS COMPLETED ===");
+    return data || [];
   } catch (error) {
-    console.error("Error fetching feed posts:", error);
     return [];
   }
 };
-  // const snapshot = await getDocs(q);
-  // return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 
-// Function to add a comment to a post
-const addComment = async (postId, commentData, user) => {
+// Add comment to a post
+export const addComment = async (postId, commentData, user) => {
   try {
-    // Validate inputs
-    console.log("commentData in addcomments",commentData)
     if (!postId || !commentData || !user) {
-      console.error("Missing required data for adding comment");
       return null;
     }
-    console.log("user in addcomments",user)
-    // Create the comment object
+
     const comment = {
-      id: Math.random().toString(36) ,// Generate a random ID for the comment
-      userId: user.uid,
-      userName: user.fullName|| 'Anonymous',
-      userAvatar: user.photoURL || 'default_avatar_url',
+      post_id: postId,
+      user_id: user.uid,
       content: commentData.content,
-      createdAt: new Date().toISOString(),
+      created_at: new Date().toISOString()
     };
 
-    // Get reference to the post document
-    const postRef = doc(db, "posts", postId);
-  console.log("comment",comment)
-    // Add the comment to the post's comments array
-    await updateDoc(postRef, {
-      comments: arrayUnion(comment)
-    });
+    const { data, error } = await supabase
+      .from('comments')
+      .insert(comment)
+      .select()
+      .single();
 
-    console.log("Comment added successfully");
-    return comment;
+    if (error) {
+      throw error;
+    }
+    // Update streak for comments (5 comments = 1 day streak)
+    await updateUserActivityStreak(user.uid, 'comments');
+    return data;
 
   } catch (error) {
-    console.error("Error adding comment:", error);
     throw error;
   }
 };
 
-// Function to get all comments for a post
-const getComments = async (postId) => {
+// Get comments for a post
+export const getComments = async (postId) => {
   try {
-    const postRef = doc(db, "posts", postId);
-    const postSnap = await getDoc(postRef);
-
-    if (postSnap.exists()) {
-      return postSnap.data().comments || [];
+    // Validate UUID format
+    if (!isValidUUID(postId)) {
+      return [];
     }
-    return [];
+
+    const { data, error } = await supabase
+      .from('comments')
+      .select(`
+        *,
+        users:user_id (
+          full_name,
+          profile_image,
+          username
+        )
+      `)
+      .eq('post_id', postId)
+      .order('created_at', { ascending: true });
+
+    if (error) {
+      throw error;
+    }
+
+    return data || [];
   } catch (error) {
-    console.error("Error fetching comments:", error);
     return [];
   }
 };
 
-// Function to delete a comment
-const deleteComment = async (postId, commentId) => {
+// Delete a comment
+export const deleteComment = async (commentId, userId) => {
   try {
-    const postRef = doc(db, "posts", postId);
-    const postSnap = await getDoc(postRef);
+    const { error } = await supabase
+      .from('comments')
+      .delete()
+      .eq('id', commentId)
+      .eq('user_id', userId); // Ensure user can only delete their own comments
 
-    if (postSnap.exists()) {
-      const post = postSnap.data();
-      const updatedComments = post.comments.filter(
-        comment => comment.id !== commentId
-      );
-
-      await updateDoc(postRef, {
-        comments: updatedComments
-      });
-
-      console.log("Comment deleted successfully");
-      return true;
+    if (error) {
+      throw error;
     }
-    return false;
+
+    return true;
   } catch (error) {
-    console.error("Error deleting comment:", error);
     throw error;
   }
 };
 
-// Add like to post
-const addLike = async (postId, user) => {
+// Add like to post (with duplicate check)
+export const addLike = async (postId, user) => {
   try {
     if (!postId || !user) {
-      console.error("Missing required data for adding like");
       return null;
     }
 
-    const postRef = doc(db, "posts", postId);
-    const postSnap = await getDoc(postRef);
-
-    if (!postSnap.exists()) {
-      console.error("Post not found");
+    // Validate UUID format
+    if (!isValidUUID(postId)) {
       return null;
+    }
+
+    // First check if user has already liked this post
+    const existingLike = await hasUserLiked(postId, user.uid);
+    if (existingLike) {
+      return null; // Already liked, return null to indicate no change needed
     }
 
     const like = {
-      userId: user.uid,
-      userName: user.displayName || 'Anonymous',
-      createdAt: new Date().toISOString()
+      post_id: postId,
+      user_id: user.uid,
+      created_at: new Date().toISOString()
     };
 
-    await updateDoc(postRef, {
-      likes: arrayUnion(like)
-    });
+    const { data, error } = await supabase
+      .from('likes')
+      .insert(like)
+      .select()
+      .single();
 
-    return like;
+    if (error) {
+      // Handle duplicate key constraint specifically
+      if (error.code === '23505') {
+        return null;
+      }
+      throw error;
+    }
+
+    return data;
   } catch (error) {
-    console.error("Error adding like:", error);
     throw error;
   }
 };
 
 // Remove like from post
-const removeLike = async (postId, user) => {
+export const removeLike = async (postId, user) => {
   try {
     if (!postId || !user) {
-      console.error("Missing required data for removing like");
       return null;
     }
 
-    const postRef = doc(db, "posts", postId);
-    const postSnap = await getDoc(postRef);
-
-    if (!postSnap.exists()) {
-      console.error("Post not found");
+    // Validate UUID format
+    if (!isValidUUID(postId)) {
       return null;
     }
 
-    // Find the existing like object
-    const currentLikes = postSnap.data().likes || [];
-    const updatedLikes = currentLikes.filter(like => like.userId !== user.uid);
+    const { error } = await supabase
+      .from('likes')
+      .delete()
+      .eq('post_id', postId)
+      .eq('user_id', user.uid);
 
-    // Update with the filtered likes array
-    await updateDoc(postRef, {
-      likes: updatedLikes
-    });
+    if (error) {
+      throw error;
+    }
 
     return true;
   } catch (error) {
-    console.error("Error removing like:", error);
     throw error;
   }
 };
 
 // Get likes for a post
-const getLikes = async (postId) => {
+export const getLikes = async (postId) => {
   try {
-    const postRef = doc(db, "posts", postId);
-    const postSnap = await getDoc(postRef);
-
-    if (postSnap.exists()) {
-      return postSnap.data().likes || [];
+    // Validate UUID format
+    if (!isValidUUID(postId)) {
+      return [];
     }
-    return [];
+
+    const { data, error } = await supabase
+      .from('likes')
+      .select(`
+        *,
+        users:user_id (
+          full_name,
+          profile_image,
+          username
+        )
+      `)
+      .eq('post_id', postId)
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      throw error;
+    }
+
+    return data || [];
   } catch (error) {
-    console.error("Error fetching likes:", error);
     return [];
   }
 };
 
-// In ../app/(apis)/post.js
-
-export const deletePost = async (postId) => {
+// Delete post with images
+export const deletePost = async (postId, userId) => {
   try {
-    const postRef = doc(db, "posts", postId);
-
-    // Fetch the post document
-    const postSnap = await getDoc(postRef);
-    if (!postSnap.exists()) {
-      throw new Error("Post not found");
+    // Validate UUID format
+    if (!isValidUUID(postId)) {
+      return false;
     }
 
-    const postData = postSnap.data();
-    const mediaUrls = postData.mediaUrls || []; // Ensure it's an array
+    // First get the post to check ownership and get image URLs
+    const { data: post, error: fetchError } = await supabase
+      .from('posts')
+      .select('user_id, images')
+      .eq('id', postId)
+      .single();
 
-    // Delete each image from Firebase Storage
-    for (const url of mediaUrls) {
-      const storagePath = extractStoragePath(url);
-      if (storagePath) {
-        const imageRef = ref(storage, storagePath);
-        await deleteObject(imageRef);
+    if (fetchError) {
+      throw fetchError;
+    }
+
+    // Check if user owns the post
+    if (post.user_id !== userId) {
+      throw new Error('Unauthorized: You can only delete your own posts');
+    }
+
+    // Delete images from storage if they exist
+    if (post.images && Array.isArray(post.images) && post.images.length > 0) {
+      for (const imageUrl of post.images) {
+        try {
+          // Extract file path from URL for Supabase storage
+          const urlParts = imageUrl.split('/');
+          const fileName = urlParts[urlParts.length - 1];
+          const folderPath = `posts/${fileName}`;
+
+          const { error: storageError } = await supabase.storage
+            .from('user-uploads')
+            .remove([folderPath]);
+
+          if (storageError) {
+            // Log but don't fail the deletion
+          }
+        } catch (imageError) {
+          // Continue with post deletion even if image deletion fails
+        }
       }
     }
 
-    // Delete the post document from Firestore
-    await deleteDoc(postRef);
+    // Delete the post
+    const { error: deleteError } = await supabase
+      .from('posts')
+      .delete()
+      .eq('id', postId)
+      .eq('user_id', userId);
 
-    console.log("Post and associated images deleted successfully");
-  } catch (error) {
-    console.error("Error deleting post:", error);
-    throw new Error("Failed to delete post and images");
-  }
-};
-
-// Function to extract storage path from Firebase Storage URL
-const extractStoragePath = (url) => {
-  try {
-    const decodedUrl = decodeURIComponent(url); // Decode URL
-    const match = decodedUrl.match(/o\/([^?]*)/); // Extract the path after 'o/'
-    return match ? match[1] : null; // Return the storage path
-  } catch (error) {
-    console.error("Error extracting storage path:", error);
-    return null;
-  }
-};
-
-// Get the current share count for a post
-export const getShareCount = async (postId) => {
-  try {
-    const postRef = doc(db, 'posts', postId);
-    const postDoc = await getDoc(postRef);
-    
-    if (postDoc.exists()) {
-      return postDoc.data().shareCount || 0;
+    if (deleteError) {
+      throw deleteError;
     }
-    return 0;
+
+    return true;
   } catch (error) {
-    console.error('Error getting share count:', error);
     throw error;
   }
 };
 
-// Increment the share count for a post
-export const incrementShareCount = async (postId) => {
+// Report post
+export const reportPost = async (postId, userId, reason, additionalInfo = '') => {
   try {
-    const postRef = doc(db, 'posts', postId);
-    await updateDoc(postRef, {
-      shareCount: increment(1)
-    });
-  } catch (error) {
-    console.error('Error incrementing share count:', error);
-    throw error;
-  }
-};
-
-// Check if user has liked post
-const hasUserLiked = (likes, userId) => {
-  return likes.some(like => like.userId === userId);
-};
-
-
-
-
-// export const fetchHotPosts = async () => {
-//   try {
-//     // Create a query to fetch most engaging posts
-//     const hotPostsQuery = query(
-//       collection(db, 'posts'),
-//       orderBy('likes', 'desc'),  // Sort by likes
-//       orderBy('comments', 'desc'),  // Then by comments
-//       limit(10)  // Fetch top 10 hot posts
-//     );
-
-//     const hotPostsSnapshot = await getDocs(hotPostsQuery);
-    
-//     return hotPostsSnapshot.docs.map(doc => ({
-//       id: doc.id,
-//       ...doc.data()
-//     }));
-//   } catch (error) {
-//     console.error('Error fetching hot posts:', error);
-//     return [];
-//   }
-// };
-export const fetchHotPosts = async (collegeId) => {
-  try {
-    // Check if there are enough posts first
-    const postsCountSnapshot = await getCountFromServer(query(collection(db, 'posts'), where('college', '==', collegeId)));
-    
-    if (postsCountSnapshot.data().count < 10) {
-      return null; // Not enough posts to determine a hot post
-    }
-    
-    // Get the current date at midnight
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    
-    // Get the previous day date
-    const yesterday = new Date(today);
-    yesterday.setDate(yesterday.getDate() - 1);
-    
-    // Create a query to fetch the most engaging post from the previous day
-    const hotPostsQuery = query(
-      collection(db, 'posts'),
-      where('college', '==', collegeId),
-      where('createdAt', '>=', yesterday),
-      where('createdAt', '<', today)
-    );
-    
-    const hotPostsSnapshot = await getDocs(hotPostsQuery);
-    
-    if (hotPostsSnapshot.empty) {
-      return null;
-    }
-    
-    // Sort the posts by engagement (likes + comments)
-    const posts = hotPostsSnapshot.docs.map(doc => ({
-      id: doc.id,
-      ...doc.data(),
-      // Calculate total engagement score
-      engagementScore: (doc.data().likes || 0) + (doc.data().comments?.length || 0)
-    }));
-    
-    // Sort by engagement score, then by timestamp if tied
-    posts.sort((a, b) => {
-      if (b.engagementScore !== a.engagementScore) {
-        return b.engagementScore - a.engagementScore;
-      }
-      // If engagement is the same, sort by most recent
-      return b.createdAt.toDate() - a.createdAt.toDate();
-    });
-    
-    // Return only the top post
-    return posts.length > 0 ? posts[0] : null;
-    
-  } catch (error) {
-    console.error('Error fetching hot post:', error);
-    return null;
-  }
-};
-export const reportPost = async (postId, reporterId) => {
-  try {
-    const reportsRef = collection(db, 'postReports');
-    return await addDoc(reportsRef, {
-      postId,
-      reporterId,
-      timestamp: new Date(),
+    const report = {
+      post_id: postId,
+      reporter_id: userId,
+      reason: reason,
+      additional_info: additionalInfo,
+      created_at: new Date().toISOString(),
       status: 'pending'
-    });
+    };
+
+    const { data, error } = await supabase
+      .from('post_reports')
+      .insert(report)
+      .select()
+      .single();
+
+    if (error) {
+      throw error;
+    }
+
+    return data;
   } catch (error) {
-    console.error('Error reporting post:', error);
     throw error;
   }
 };
 
-export const incrementViews = async (postId, userId) => {
+// Check if user has saved a post
+export const hasUserSaved = async (postId, userId) => {
   try {
-    const postRef = doc(db, 'posts', postId);
-    
-    // Increment views atomically
-    await updateDoc(postRef, {
-      views: increment(1),
-      viewedBy: arrayUnion(userId)
-    });
+    // Validate UUID format
+    if (!isValidUUID(postId)) {
+      return false;
+    }
+
+    const { data, error } = await supabase
+      .from('saved_posts')
+      .select('id')
+      .eq('post_id', postId)
+      .eq('user_id', userId)
+      .limit(1);
+
+    if (error) {
+      throw error;
+    }
+
+    return data && data.length > 0;
   } catch (error) {
-    console.error('Error incrementing views:', error);
+    return false;
   }
 };
 
+// Save post
+export const savePost = async (postId, userId) => {
+  try {
+    // First check if already saved
+    const alreadySaved = await hasUserSaved(postId, userId);
+    if (alreadySaved) {
+      return null; // Already saved
+    }
+
+    const save = {
+      post_id: postId,
+      user_id: userId,
+      created_at: new Date().toISOString()
+    };
+
+    const { data, error } = await supabase
+      .from('saved_posts')
+      .insert(save)
+      .select()
+      .single();
+
+    if (error) {
+      // Handle duplicate key constraint specifically
+      if (error.code === '23505') {
+        return null;
+      }
+      throw error;
+    }
+
+    return data;
+  } catch (error) {
+    throw error;
+  }
+};
+
+// Unsave post
+export const unsavePost = async (postId, userId) => {
+  try {
+    const { error } = await supabase
+      .from('saved_posts')
+      .delete()
+      .eq('post_id', postId)
+      .eq('user_id', userId);
+
+    if (error) {
+      throw error;
+    }
+
+    return true;
+  } catch (error) {
+    throw error;
+  }
+};
+
+// Get saved posts for user
+export const getSavedPosts = async (userId) => {
+  try {
+    const { data, error } = await supabase
+      .from('saved_posts')
+      .select(`
+        *,
+        posts:post_id (
+          *,
+          users:user_id (
+            full_name,
+            profile_image,
+            username
+          )
+        )
+      `)
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      throw error;
+    }
+
+    // Extract posts from the relationship
+    return data?.map(save => save.posts).filter(post => post) || [];
+  } catch (error) {
+    return [];
+  }
+};
+
+// Check if user has liked a post
+export const hasUserLiked = async (postId, userId) => {
+  try {
+    // Validate UUID format
+    if (!isValidUUID(postId)) {
+      return false;
+    }
+
+    const { data, error } = await supabase
+      .from('likes')
+      .select('id')
+      .eq('post_id', postId)
+      .eq('user_id', userId)
+      .limit(1);
+
+    if (error) {
+      throw error;
+    }
+
+    return data && data.length > 0;
+  } catch (error) {
+    return false;
+  }
+};
+
+// Get views for a post
 export const getViews = async (postId) => {
   try {
-    const postRef = doc(db, 'posts', postId);
-    const postSnap = await getDoc(postRef);
-    
-    return postSnap.data()?.views || 0;
+    const { data, error } = await supabase
+      .from('post_views')
+      .select('*')
+      .eq('post_id', postId);
+
+    if (error) {
+      throw error;
+    }
+
+    return data?.length || 0;
   } catch (error) {
-    console.error('Error fetching views:', error);
     return 0;
   }
 };
 
-// const handleAddPost = async (postData) => {
-//   try {
-//     const postRef = await firestore.collection("posts").add(postData)
-//     return postRef.id
-//   } catch (error) {
-//     console.error("Error adding post:", error)
-//     throw error
-//   }
-// }
-
-// const handleDeletePost = async (postId) => {
-//   try {
-//     // Delete associated likes
-//     const likesSnapshot = await firestore.collection("likes").where("postId", "==", postId).get()
-//     const batch = firestore.batch()
-//     likesSnapshot.forEach((doc) => batch.delete(doc.ref))
-//     await batch.commit()
-
-//     // Delete associated saves
-//     const savesSnapshot = await firestore.collection("savedPosts").where("postId", "==", postId).get()
-//     const saveBatch = firestore.batch()
-//     savesSnapshot.forEach((doc) => saveBatch.delete(doc.ref))
-//     await saveBatch.commit()
-
-//     // Delete associated reports
-//     const reportsSnapshot = await firestore.collection("reports").where("postId", "==", postId).get()
-//     const reportBatch = firestore.batch()
-//     reportsSnapshot.forEach((doc) => reportBatch.delete(doc.ref))
-//     await reportBatch.commit()
-
-//     // Delete the post
-//     await firestore.collection("posts").doc(postId).delete()
-//   } catch (error) {
-//     console.error("Error deleting post:", error)
-//     throw error
-//   }
-// }
-
-// // Report Post
-// const handleReportPost = async (postId, userId, reason) => {
-//   try {
-//     await firestore.collection("reports").add({
-//       reported_by: userId,
-//       postId: postId,
-//       reason: reason,
-//       timestamp: new Date(),
-//     })
-//   } catch (error) {
-//     console.error("Error reporting post:", error)
-//     throw error
-//   }
-// }
-
-// // Save/Unsave Post
-// const handleSavePost = async (postId, userId) => {
-//   try {
-//     await firestore.collection("savedPosts").add({
-//       userId: userId,
-//       postId: postId,
-//       timestamp: new Date(),
-//     })
-//   } catch (error) {
-//     console.error("Error saving post:", error)
-//     throw error
-//   }
-// }
-
-// const handleUnsavePost = async (postId, userId) => {
-//   try {
-//     const snapshot = await firestore
-//       .collection("savedPosts")
-//       .where("userId", "==", userId)
-//       .where("postId", "==", postId)
-//       .get()
-//     const batch = firestore.batch()
-//     snapshot.forEach((doc) => batch.delete(doc.ref))
-//     await batch.commit()
-//   } catch (error) {
-//     console.error("Error unsaving post:", error)
-//     throw error
-//   }
-// }
-
-// const getSavedPosts = async (userId) => {
-//   try {
-//     const snapshot = await firestore
-//       .collection("savedPosts")
-//       .where("userId", "==", userId)
-//       .get()
-//     const savedPosts = []
-//     for (const doc of snapshot.docs) {
-//       const postData = await firestore.collection("posts").doc(doc.data().postId).get()
-//       if (postData.exists) {
-//         savedPosts.push({ id: postData.id, ...postData.data() })
-//       }
-//     }
-//     return savedPosts
-//   } catch (error) {
-//     console.error("Error fetching saved posts:", error)
-//     throw error
-//   }
-// }
-const handleDeletePost = async (postId) => {
+// Increment views for a post
+export const incrementViews = async (postId, userId) => {
   try {
-    // Delete associated likes
-    const likesRef = collection(db, "likes");
-    const likesQuery = query(likesRef, where("postId", "==", postId));
-    const likesSnapshot = await getDocs(likesQuery);
-    
-    for (const document of likesSnapshot.docs) {
-      await deleteDoc(doc(db, "likes", document.id));
-    }
-
-    // Delete associated saves
-    const savesRef = collection(db, "savedPosts");
-    const savesQuery = query(savesRef, where("postId", "==", postId));
-    const savesSnapshot = await getDocs(savesQuery);
-    
-    for (const document of savesSnapshot.docs) {
-      await deleteDoc(doc(db, "savedPosts", document.id));
-    }
-
-    // Delete associated reports
-    const reportsRef = collection(db, "reports");
-    const reportsQuery = query(reportsRef, where("postId", "==", postId));
-    const reportsSnapshot = await getDocs(reportsQuery);
-    
-    for (const document of reportsSnapshot.docs) {
-      await deleteDoc(doc(db, "reports", document.id));
-    }
-
-    // Delete the post itself
-    await deleteDoc(doc(db, "posts", postId));
+    // Not implemented yet
+    return 0;
   } catch (error) {
-    console.error("Error deleting post:", error);
-    throw error;
+    return 0;
   }
 };
 
-/**
- * Reports a post
- * @param {string} postId - The post ID to report
- * @param {string} userId - The user ID reporting the post
- * @param {string} reason - The reason for reporting
- * @returns {Promise<void>}
- */
-const handleReportPost = async (postId, userId, reason) => {
+// Get share count for a post
+export const getShareCount = async (postId) => {
+  return 0; // Not implemented yet
+};
+
+// Increment share count for a post
+export const incrementShareCount = async (postId) => {
   try {
-    const reportsRef = collection(db, "reports");
-    await addDoc(reportsRef, {
-      reported_by: userId,
-      postId: postId,
-      reason: reason,
-      timestamp: serverTimestamp(),
-    });
+    // Not implemented yet
+    return 0;
   } catch (error) {
-    console.error("Error reporting post:", error);
-    throw error;
+    return 0;
   }
 };
 
-/**
- * Saves a post for a user
- * @param {string} postId - The post ID to save
- * @param {string} userId - The user ID saving the post
- * @returns {Promise<void>}
- */
-const savePost = async (postId, userId) => {
-  try {
-    const savedPostsRef = collection(db, "savedPosts");
-    await addDoc(savedPostsRef, {
-      userId: userId,
-      postId: postId,
-      timestamp: serverTimestamp(),
-    });
-  } catch (error) {
-    console.error("Error saving post:", error);
-    throw error;
-  }
+// Utility function to validate UUID format
+const isValidUUID = (uuid) => {
+  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+  return uuidRegex.test(uuid);
 };
 
-/**
- * Unsaves a post for a user
- * @param {string} postId - The post ID to unsave
- * @param {string} userId - The user ID unsaving the post
- * @returns {Promise<void>}
- */
-const unsavePost = async (postId, userId) => {
-  try {
-    const savedPostsRef = collection(db, "savedPosts");
-    const q = query(savedPostsRef, where("userId", "==", userId), where("postId", "==", postId));
-    const snapshot = await getDocs(q);
-    
-    snapshot.forEach(async (document) => {
-      await deleteDoc(doc(db, "savedPosts", document.id));
-    });
-  } catch (error) {
-    console.error("Error unsaving post:", error);
-    throw error;
-  }
-};
-
-/**
- * Gets all saved posts for a user
- * @param {string} userId - The user ID to get saved posts for
- * @returns {Promise<Array>} - Array of saved posts
- */
-const getSavedPosts = async (userId) => {
-  try {
-    const savedPostsRef = collection(db, "savedPosts");
-    const q = query(savedPostsRef, where("userId", "==", userId));
-    const snapshot = await getDocs(q);
-    
-    const savedPosts = [];
-    for (const document of snapshot.docs) {
-      const postData = await getDoc(doc(db, "posts", document.data().postId));
-      if (postData.exists()) {
-        savedPosts.push({ id: postData.id, ...postData.data() });
-      }
-    }
-    return savedPosts;
-  } catch (error) {
-    console.error("Error fetching saved posts:", error);
-    throw error;
-  }
-};
-
-
-
-export {  handleDeletePost,
-  handleReportPost,
-  savePost,
-  unsavePost,
-  getSavedPosts,addComment, getComments, deleteComment, addLike, removeLike, getLikes, hasUserLiked  };
+// Legacy exports for backward compatibility
+export const handleReportPost = reportPost;
+export const handleDeletePost = deletePost;
 
 
 

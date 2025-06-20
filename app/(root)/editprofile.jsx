@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -10,14 +10,19 @@ import {
   ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
+  StatusBar
 } from 'react-native';
 import { useRouter, useNavigation } from 'expo-router';
 import { doc, updateDoc, getDoc } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { db, storage, auth } from '../../config/firebaseConfig';
 import * as ImagePicker from 'expo-image-picker';
-import { MaterialIcons } from '@expo/vector-icons';
+import { MaterialIcons, Ionicons } from '@expo/vector-icons';
 import { Picker } from '@react-native-picker/picker';
+import { LinearGradient } from 'expo-linear-gradient';
+import { useSafeNavigation } from '../../hooks/useSafeNavigation';
+import { useAuth } from '../../context/authContext';
+import { supabase } from '../../config/supabaseConfig';
 
 const interests = [
   "Programming",
@@ -54,45 +59,83 @@ const years = Array.from(
   (_, i) => (new Date().getFullYear() + i).toString()
 );
 
-function EditProfile ()  {
+const COLORS = {
+  background: '#000000',
+  cardBg: '#111111',
+  text: '#FFFFFF',
+  textSecondary: '#E5E5E5',
+  textMuted: '#A1A1AA',
+  inputBg: '#1A1A1A',
+  inputBorder: '#404040',
+  accent: '#8B5CF6',
+  border: 'rgba(255, 255, 255, 0.1)',
+  danger: '#EF4444',
+};
+
+const EditProfile = () => {
   const router = useRouter();
   const navigation = useNavigation();
-  const [loading, setLoading] = useState(false);
+  const { safeBack } = useSafeNavigation({ modals: [], onCleanup: () => {} });
+  const [loading, setLoading] = useState(true);
   const [imageUploading, setImageUploading] = useState(false);
-  const [userData, setUserData] = useState({
-    fullName: '',
-    branch: '',
-    passoutYear: '',
-    about: '',
-    interests: [],
-    profileImage: ''
-  });
+  const [userData, setUserData] = useState(null);
+  const [saving, setSaving] = useState(false);
+  const isMounted = useRef(true);
+  
+  const { user } = useAuth();
 
-  // Load current user data
+  // Load user data
   useEffect(() => {
     const loadUserData = async () => {
       try {
-        const userDoc = doc(db, 'users', auth.currentUser.uid);
-        const docSnap = await getDoc(userDoc);
-        if (docSnap.exists()) {
-          const data = docSnap.data();
-          setUserData({
-            fullName: data.fullName || '',
-            branch: data.branch || '',
-            passoutYear: data.passoutYear || '',
-            about: data.about || '',
-            interests: data.interests || [],
-            profileImage: data.profileImage || ''
+        if (!user?.uid) {
+          console.error('No user ID available');
+          if (isMounted.current) {
+            setLoading(false);
+            Alert.alert('Error', 'Unable to load user data. Please try again.');
+            safeBack();
+          }
+          return;
+        }
+
+        const { data, error } = await supabase
+          .from('users')
+          .select('*')
+          .eq('id', user.uid)
+          .single();
+
+        if (error) {
+          console.error('Error fetching user data:', error);
+          if (isMounted.current) {
+            setLoading(false);
+            Alert.alert('Error', 'Failed to load user data. Please try again.');
+            safeBack();
+          }
+          return;
+        }
+
+        if (isMounted.current) {
+          setUserData(data || {
+            full_name: user.displayName || '',
+            username: '',
+            bio: '',
+            email: user.email || '',
+            profile_image: user.photoURL || '',
           });
+          setLoading(false);
         }
       } catch (error) {
-        console.error('Error loading user data:', error);
-        Alert.alert('Error', 'Failed to load profile data');
+        console.error('Error in loadUserData:', error);
+        if (isMounted.current) {
+          setLoading(false);
+          Alert.alert('Error', 'An unexpected error occurred. Please try again.');
+          safeBack();
+        }
       }
     };
 
     loadUserData();
-  }, []);
+  }, [user]);
 
   const handleImagePick = async () => {
     try {
@@ -122,7 +165,7 @@ function EditProfile ()  {
       await uploadBytes(imageRef, blob);
       const downloadURL = await getDownloadURL(imageRef);
       
-      setUserData(prev => ({ ...prev, profileImage: downloadURL }));
+      setUserData(prev => ({ ...prev, profile_image: downloadURL }));
       return downloadURL;
     } catch (error) {
       console.error('Error uploading image:', error);
@@ -133,184 +176,251 @@ function EditProfile ()  {
   };
 
   const handleSave = async () => {
-    if (!userData.fullName.trim()) {
-      Alert.alert('Error', 'Full name is required');
+    if (!userData || !user?.uid) {
+      Alert.alert('Error', 'Unable to save changes. Please try again.');
       return;
     }
 
     try {
-      setLoading(true);
-      const userRef = doc(db, 'users', auth.currentUser.uid);
-      
-      await updateDoc(userRef, {
-        ...userData,
-        updatedAt: new Date()
-      });
+      setSaving(true);
 
-      Alert.alert('Success', 'Profile updated successfully');
-      router.push('/(tabs)/profile');
+      const { error } = await supabase
+        .from('users')
+        .upsert({
+          id: user.uid,
+          ...userData,
+          updated_at: new Date().toISOString(),
+        });
+
+      if (error) throw error;
+
+      if (isMounted.current) {
+        Alert.alert('Success', 'Profile updated successfully');
+        safeBack();
+      }
     } catch (error) {
-      console.error('Error updating profile:', error);
-      Alert.alert('Error', 'Failed to update profile');
+      console.error('Error saving profile:', error);
+      if (isMounted.current) {
+        Alert.alert('Error', 'Failed to save changes. Please try again.');
+      }
     } finally {
-      setLoading(false);
+      if (isMounted.current) {
+        setSaving(false);
+      }
     }
   };
 
+  if (loading) {
+    return (
+      <View style={{ 
+        flex: 1, 
+        backgroundColor: COLORS.background,
+        justifyContent: 'center',
+        alignItems: 'center'
+      }}>
+        <StatusBar barStyle="light-content" backgroundColor={COLORS.background} />
+        <ActivityIndicator size="large" color={COLORS.accent} />
+        <Text style={{ 
+          color: COLORS.textSecondary,
+          marginTop: 16,
+          fontSize: 16
+        }}>
+          Loading profile...
+        </Text>
+      </View>
+    );
+  }
+
   return (
-    <KeyboardAvoidingView
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      className="flex-1 bg-white"
-    >
-      <ScrollView className="flex-1 px-6">
-        <View className="items-center mt-8 mb-8">
-          <TouchableOpacity onPress={handleImagePick}>
-            <View className="relative">
-              <Image
-                source={{ 
-                  uri: userData.profileImage || 
-                    'https://via.placeholder.com/150'
-                }}
-                className="w-32 h-32 rounded-full border-4 border-gray-200"
-              />
-              <View className="absolute bottom-0 right-0 bg-blue-600 p-2 rounded-full shadow-lg">
-                <MaterialIcons name="camera-alt" size={24} color="white" />
-              </View>
-            </View>
+    <View style={{ flex: 1, backgroundColor: COLORS.background }}>
+      <StatusBar barStyle="light-content" backgroundColor={COLORS.background} />
+      
+      {/* Header */}
+      <View style={{
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        paddingTop: Platform.OS === 'ios' ? 50 : 40,
+        paddingHorizontal: 20,
+        paddingBottom: 16,
+        borderBottomWidth: 1,
+        borderBottomColor: COLORS.border,
+      }}>
+        <TouchableOpacity
+          onPress={safeBack}
+          style={{
+            width: 40,
+            height: 40,
+            borderRadius: 20,
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}
+        >
+          <Ionicons name="arrow-back" size={24} color={COLORS.text} />
+        </TouchableOpacity>
+        
+        <Text style={{
+          fontSize: 18,
+          fontWeight: '600',
+          color: COLORS.text,
+        }}>
+          Edit Profile
+        </Text>
+
+        <TouchableOpacity
+          onPress={handleSave}
+          disabled={saving}
+          style={{
+            opacity: saving ? 0.6 : 1,
+          }}
+        >
+          <Text style={{
+            color: COLORS.accent,
+            fontSize: 16,
+            fontWeight: '600',
+          }}>
+            {saving ? 'Saving...' : 'Save'}
+          </Text>
+        </TouchableOpacity>
+      </View>
+
+      <ScrollView
+        style={{ flex: 1 }}
+        contentContainerStyle={{ padding: 20 }}
+        showsVerticalScrollIndicator={false}
+      >
+        {/* Profile Image */}
+        <View style={{ alignItems: 'center', marginBottom: 24 }}>
+          <Image
+            source={{ uri: userData?.profile_image || 'https://via.placeholder.com/100' }}
+            style={{
+              width: 100,
+              height: 100,
+              borderRadius: 50,
+              marginBottom: 12,
+            }}
+          />
+          <TouchableOpacity
+            style={{
+              backgroundColor: COLORS.inputBg,
+              paddingHorizontal: 16,
+              paddingVertical: 8,
+              borderRadius: 20,
+              borderWidth: 1,
+              borderColor: COLORS.border,
+            }}
+          >
+            <Text style={{ color: COLORS.accent }}>Change Photo</Text>
           </TouchableOpacity>
-          {imageUploading && (
-            <ActivityIndicator size="small" color="#3B82F6" className="mt-4" />
-          )}
         </View>
 
-        <View className="space-y-5">
+        {/* Form Fields */}
+        <View style={{ gap: 20 }}>
           <View>
-            <Text className="text-gray-700 text-base mb-2 font-semibold">Full Name*</Text>
+            <Text style={{
+              color: COLORS.textSecondary,
+              marginBottom: 8,
+              fontSize: 14,
+            }}>
+              Full Name
+            </Text>
             <TextInput
-              value={userData.fullName}
-              onChangeText={(text) => setUserData(prev => ({ ...prev, fullName: text }))}
-              className="bg-gray-50 text-gray-900 p-4 rounded-xl border border-gray-200"
-              placeholderTextColor="#9CA3AF"
+              value={userData?.full_name || ''}
+              onChangeText={(text) => setUserData(prev => ({ ...prev, full_name: text }))}
+              style={{
+                backgroundColor: COLORS.inputBg,
+                borderRadius: 12,
+                padding: 16,
+                color: COLORS.text,
+                fontSize: 16,
+                borderWidth: 1,
+                borderColor: COLORS.border,
+              }}
+              placeholderTextColor={COLORS.textMuted}
+              placeholder="Enter your full name"
             />
           </View>
 
           <View>
-            <Text className="text-gray-700 text-base mb-2 font-semibold">About</Text>
+            <Text style={{
+              color: COLORS.textSecondary,
+              marginBottom: 8,
+              fontSize: 14,
+            }}>
+              Username
+            </Text>
             <TextInput
-              value={userData.about}
-              onChangeText={(text) => setUserData(prev => ({ ...prev, about: text }))}
+              value={userData?.username || ''}
+              onChangeText={(text) => setUserData(prev => ({ ...prev, username: text }))}
+              style={{
+                backgroundColor: COLORS.inputBg,
+                borderRadius: 12,
+                padding: 16,
+                color: COLORS.text,
+                fontSize: 16,
+                borderWidth: 1,
+                borderColor: COLORS.border,
+              }}
+              placeholderTextColor={COLORS.textMuted}
+              placeholder="Enter your username"
+            />
+          </View>
+
+          <View>
+            <Text style={{
+              color: COLORS.textSecondary,
+              marginBottom: 8,
+              fontSize: 14,
+            }}>
+              Bio
+            </Text>
+            <TextInput
+              value={userData?.bio || ''}
+              onChangeText={(text) => setUserData(prev => ({ ...prev, bio: text }))}
+              style={{
+                backgroundColor: COLORS.inputBg,
+                borderRadius: 12,
+                padding: 16,
+                color: COLORS.text,
+                fontSize: 16,
+                borderWidth: 1,
+                borderColor: COLORS.border,
+                height: 120,
+                textAlignVertical: 'top',
+              }}
               multiline
               numberOfLines={4}
-              className="bg-gray-50 text-gray-900 p-4 rounded-xl border border-gray-200"
-              placeholderTextColor="#9CA3AF"
-              textAlignVertical="top"
+              placeholderTextColor={COLORS.textMuted}
+              placeholder="Write something about yourself"
             />
           </View>
 
           <View>
-            <Text className="text-gray-700 text-base mb-2 font-semibold">Interests</Text>
-            <View className="bg-gray-50 rounded-xl border border-gray-200 overflow-hidden">
-              <Picker
-                selectedValue={userData.interests}
-                onValueChange={(itemValue) => 
-                  setUserData(prev => ({...prev, interests: itemValue}))
-                }
-                style={{ color: '#1F2937' }}
-              >
-                {interests.map((interest) => (
-                  <Picker.Item 
-                    key={interest}
-                    label={interest}
-                    value={interest}
-                    style={{ fontSize: 16 }}
-                  />
-                ))}
-              </Picker>
-            </View>
-          </View>
-
-          <View>
-            <Text className="text-gray-700 text-base mb-2 font-semibold">Branch</Text>
-            <View className="bg-gray-50 rounded-xl border border-gray-200 overflow-hidden">
-              <Picker
-                selectedValue={userData.branch}
-                onValueChange={(itemValue) => 
-                  setUserData(prev => ({...prev, branch: itemValue}))
-                }
-                style={{ color: '#1F2937' }}
-              >
-                {branches.map((branch) => (
-                  <Picker.Item 
-                    key={branch}
-                    label={branch}
-                    value={branch}
-                    style={{ fontSize: 16 }}
-                  />
-                ))}
-              </Picker>
-            </View>
-          </View>
-
-          <View>
-            <Text className="text-gray-700 text-base mb-2 font-semibold">Passout Year</Text>
-            <View className="bg-gray-50 rounded-xl border border-gray-200 overflow-hidden">
-              <Picker
-                selectedValue={userData.passoutYear}
-                onValueChange={(itemValue) => 
-                  setUserData(prev => ({...prev, passoutYear: itemValue}))
-                }
-                style={{ color: '#1F2937' }}
-              >
-                {years.map((year) => (
-                  <Picker.Item 
-                    key={year}
-                    label={year}
-                    value={year}
-                    style={{ fontSize: 16 }}
-                  />
-                ))}
-              </Picker>
-            </View>
-          </View>
-        </View>
-
-        <View className="my-8 space-y-4">
-          <TouchableOpacity
-            onPress={handleSave}
-            disabled={loading}
-            className={`rounded-xl p-4 shadow-md ${loading ? 'bg-gray-400' : 'bg-blue-600'}`}
-          >
-            {loading ? (
-              <ActivityIndicator color="white" />
-            ) : (
-              <Text className="text-white text-center font-bold text-lg">
-                Save Changes
-              </Text>
-            )}
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            onPress={() => navigation.goBack()}
-            className="rounded-xl p-4 bg-gray-100 shadow-sm"
-          >
-            <Text className="text-gray-700 text-center font-bold text-lg">
-              Go Back
+            <Text style={{
+              color: COLORS.textSecondary,
+              marginBottom: 8,
+              fontSize: 14,
+            }}>
+              Email
             </Text>
-          </TouchableOpacity>
+            <TextInput
+              value={userData?.email || ''}
+              editable={false}
+              style={{
+                backgroundColor: COLORS.inputBg,
+                borderRadius: 12,
+                padding: 16,
+                color: COLORS.textMuted,
+                fontSize: 16,
+                borderWidth: 1,
+                borderColor: COLORS.border,
+              }}
+            />
+          </View>
         </View>
       </ScrollView>
-    </KeyboardAvoidingView>
+    </View>
   );
 };
 
 export default EditProfile;
-// import { View, Text } from 'react-native'
-// import React from 'react'
-
-// export default function editprofile() {
-//   return (
-//     <View>
-//       <Text>editprofile</Text>
-//     </View>
-//   )
-// }

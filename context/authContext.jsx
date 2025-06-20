@@ -1,11 +1,10 @@
 // import { onAuthStateChanged } from 'firebase/auth';
 import React, { useState, useEffect, createContext, useContext } from 'react';
-import { onAuthStateChanged ,createUserWithEmailAndPassword,signInWithEmailAndPassword,signOut,sendEmailVerification,setMessage} from 'firebase/auth';
-import {doc,setDoc,getDoc,updateDoc, getDocs, collection, query, where} from 'firebase/firestore'
 import { Alert } from 'react-native';
-import {db} from '../config/firebaseConfig'
-import { initializeFirebase ,auth} from '../config/firebaseConfig';
 import { useRouter } from 'expo-router';
+import { supabase, handleSupabaseError } from '../config/supabaseConfig';
+// Keep Firebase for chat functionality
+import { auth as firebaseAuth, db as firebaseDb } from '../config/firebaseConfig';
 import { monitorNewMessages } from '../config/firebaseConfig';
 
 export const AuthContext = createContext();
@@ -15,255 +14,495 @@ export default function AuthContextProvider({ children }) {
   const [user, setUser] = useState(null);
   const [isProfileComplete, setIsProfileComplete] = useState(false);
   const [isCollegeSelected, setIsCollegeSelected] = useState(false);
-  // const { auth } = initializeFirebase();
-  //  console.log("auth",auth)
-const router=useRouter()
+  const [isMounted, setIsMounted] = useState(true);
+  const router = useRouter();
+
   useEffect(() => {
-
-    if (!auth) {
-      console.error("Auth service is not available");
-      return;
-    }
-
-    const unsub = onAuthStateChanged(auth, async (user) => {
-      // console.log("email verified",user.emailVerified)
-      if (user ) {
-        // console.log("Auth state changed:", user);
-        await updateUserData(user.uid);
+    setIsMounted(true);
+    
+    // Initial session check
+    const checkInitialSession = async () => {
+      try {
+        if (!isMounted) return;
         
-        setIsAuthenticated(true);
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session?.user && isMounted) {
+          console.log('🔄 Found existing session:', session.user.id);
+          await updateUserData(session.user.id);
+          
+          // Check profile completion IMMEDIATELY after user data is loaded
+          const profileComplete = await checkUserProfileCompletion(session.user.id);
+          const collegeSelected = await checkUserCollegeSelection(session.user.id);
+          
+          console.log('🔍 Initial state check:', { profileComplete, collegeSelected });
+          
+          // Update all states together only if component is still mounted
+          if (isMounted) {
+            setIsAuthenticated(true);
+            setIsProfileComplete(profileComplete);
+            setIsCollegeSelected(collegeSelected);
+          }
+          
+        } else {
+          console.log('❌ No existing session found');
+          if (isMounted) {
+            setIsAuthenticated(false);
+            setIsProfileComplete(false);
+            setIsCollegeSelected(false);
+          }
+        }
+      } catch (error) {
+        console.error('❌ Error checking initial session:', error);
+        if (isMounted) {
+          setIsAuthenticated(false);
+          setIsProfileComplete(false);
+          setIsCollegeSelected(false);
+        }
+      }
+    };
+
+    checkInitialSession();
+
+    // Listen to Supabase auth state changes
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      console.log('🔄 Auth state changed:', event, session?.user?.id);
+      
+      if (!isMounted) return;
+      
+      if (session?.user) {
+        await updateUserData(session.user.id);
         
-        const profileComplete = await checkUserProfileCompletion(user.uid);
-        setIsProfileComplete(profileComplete);
-        const CollegeSelected = await checkUserCollegeSelection(user.uid);
-        setIsCollegeSelected(CollegeSelected);
-        monitorNewMessages(user.uid);
-        // console.log("Auth", isAuthenticated);
+        // Immediately check and update completion states
+        const profileComplete = await checkUserProfileCompletion(session.user.id);
+        const collegeSelected = await checkUserCollegeSelection(session.user.id);
+        
+        console.log('🔍 Auth change state check:', { profileComplete, collegeSelected });
+        
+        // Update all states together only if component is still mounted
+        if (isMounted) {
+          setIsAuthenticated(true);
+          setIsProfileComplete(profileComplete);
+          setIsCollegeSelected(collegeSelected);
+        }
+        
+        // Monitor messages using the user ID
+        try {
+          monitorNewMessages(session.user.id);
+        } catch (error) {
+          console.warn('Firebase messaging setup failed:', error.message);
+        }
       } else {
-        setUser(null);
-        setIsAuthenticated(false);
-        setIsProfileComplete(false); // Reset on logout
-
+        if (isMounted) {
+          setUser(null);
+          setIsAuthenticated(false);
+          setIsProfileComplete(false);
+          setIsCollegeSelected(false);
+        }
+        console.log('User signed out - reset all states');
       }
     });
-    return () => unsub();
+
+    return () => {
+      setIsMounted(false);
+      subscription?.unsubscribe();
+    };
   }, []);
 
   const updateUserData = async (userId) => {
     try {
-      const docRef = doc(db, "users", userId);
-      const docSnap = await getDoc(docRef);
-      if (docSnap.exists()) {
-        const data = docSnap.data();
+      if (!isMounted) return;
+      
+      const { data, error } = await supabase
+        .from('users')
+        .select(`
+          *,
+          streak:streaks(*)
+        `)
+        .eq('id', userId)
+        .single();
+
+      if (error && error.code !== 'PGRST116') { // PGRST116 is "not found"
+        return;
+      }
+
+      if (data && isMounted) {
         setUser({
+          ...data,
           uid: userId,
-          username: data.username,
-          ...data
+          id: userId,
+          fullName: data.full_name,
+          profileImage: data.profile_image,
+          photoURL: data.profile_image,
+          displayName: data.full_name,
+          about: data.bio,
+          passoutYear: data.passout_year,
         });
+      } else {
+        if (isMounted) {
+          setUser({
+            uid: userId,
+            id: userId,
+          });
+        }
       }
     } catch (error) {
-      console.error("Error updating user:", error);
+      if (isMounted) {
+        setUser({
+          uid: userId,
+          id: userId,
+        });
+      }
     }
   };
 
   async function login(email, password) {
     try {
-      // Perform login logic, e.g., API call
+      console.log('🔐 Starting login process for:', email);
       
-//       if (password === null) {
-//         // User is already authenticated via Google, we just need to retrieve their data
-//       const usersRef = collection(db, "users");
-
-// // Example: Check if user with specific email exists
-// const q = query(usersRef, where("email", "==",email));
-
-// // const querySnapshot = await getDocs(q);
-//       // Check if user exists in Firestore using email as document ID
-//       const userDoc = await getDocs(q);
-//       console.log(userDoc.docs[0].data())      
-//       if (userDoc.docs[0].data()) {
-//         return { user: { email } };
-//       } else {
-//         throw new Error('User not found');
-//       }
-//       }
-      
-      const response=await signInWithEmailAndPassword(auth,email,password);
-      // console.log('response',response )
-      
-      
-      // router.replace('/(root)/(tabs)/home');
-      return true
-      // Adjust delay as needed
-      // Alert.alert('Success',' successful');
-    } catch (e) {
-      // console.error('Login failed:', e);
-      let errorMessage = e.message;
-      if (errorMessage.includes('auth/invalid-credential')) {
-        errorMessage = 'Invalid credential';   
-      // console.error('Signup failed:', e);
+      // Test basic connectivity first
+      try {
+        console.log('🌐 Testing basic connectivity...');
+        const testResponse = await fetch('https://httpbin.org/get', { 
+          method: 'GET',
+          timeout: 5000 
+        });
+        if (!testResponse.ok) {
+          throw new Error(`Network test failed: ${testResponse.status}`);
+        }
+        console.log('✅ Basic connectivity working');
+      } catch (connectError) {
+        console.error('❌ Network connectivity issue:', connectError.message);
+        Alert.alert('Network Error', 'Please check your internet connection and try again.');
+        return false;
       }
-      Alert.alert('Check the email and password', errorMessage)
+      
+      console.log('🔑 Attempting Supabase login...');
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email: email.trim(),
+        password: password
+      });
+
+      if (error) {
+        console.error('❌ Supabase auth error:', error);
+        throw error;
+      }
+
+      console.log('✅ Login successful:', data.user?.id);
+      return true;
+    } catch (error) {
+      console.error('❌ Login failed:', error);
+      
+      let errorMessage = 'Login failed. Please try again.';
+      
+      if (error.message?.includes('Network request failed')) {
+        errorMessage = 'Network connection failed. Please check your internet connection and try again.';
+      } else if (error.message?.includes('Invalid login credentials')) {
+        errorMessage = 'Invalid email or password. Please check your credentials.';
+      } else if (error.message?.includes('Email not confirmed')) {
+        errorMessage = 'Please check your email and confirm your account.';
+      }
+      
+      Alert.alert('Login Error', errorMessage);
+      return false;
     }
   }
 
   async function loginOut() {
     try {
-        console.log("Logging out...");
-        await signOut(auth); // Perform logout
-        console.log("Logout successful");
-        setIsAuthenticated(false); // Update authentication state
-    } catch (e) {
-        console.error("Logout failed:", e); // Handle errors
+      console.log("Logging out...");
+      
+      // Clear all local states immediately to prevent hooks errors
+      setUser(null);
+      setIsAuthenticated(false);
+      setIsProfileComplete(false);
+      setIsCollegeSelected(false);
+      
+      // Sign out from Supabase
+      const { error } = await supabase.auth.signOut();
+      
+      if (error) {
+        throw error;
+      }
+      
+      console.log("Logout successful");
+      return true;
+    } catch (error) {
+      console.error("Logout failed:", error);
+      Alert.alert('Logout Error', handleSupabaseError(error));
+      return false;
     }
-}
+  }
 
-// In authContext.js
-const registerWithGoogleCredentials = async (credentials) => {
-  // Create user in Firebase with Google credentials
-  const userCredential = await createUserWithEmailAndPassword(
-    auth,
-    credentials.email,
-    credentials.password
-  );
-
-  // Update profile with Google info
-  await updateUserProfile(userCredential.user, {
-    username: credentials.displayName,
-    photoURL: credentials.photoURL
-  });
-
-  return userCredential.user;
-};
-
-const signInWithGoogle = async (credentials) => {
-  // Sign in with email/password using Google credentials
-  const userCredential = await signInWithEmailAndPassword(
-    auth,
-    credentials.email,
-    credentials.password
-  );
-  
-  return userCredential.user;
-};
-  async function register(email, password, photoUrl) {
+  async function register(email, password, photoUrl, fullName, autoVerify = false) {
     try {
-      // Perform signup logic
-      // console.log('register')
+      console.log('Starting registration process...', { autoVerify });
+      
+      // Sign up with Supabase Auth with auto-verification option
+      const signUpOptions = {
+        email: email.trim(),
+        password: password,
+        options: {
+          data: {
+            full_name: fullName || '',
+            profile_image: photoUrl || 'https://imgs.search.brave.com/SRTQLz_BmOq7xwzV7ls7bV62QzMZtDrGSacNS5G1d1A/rs:fit:500:0:0:0/g:ce/aHR0cHM6Ly9pY29u/cy52ZXJ5aWNvbi5j/b20vcG5nLzEyOC9t/aXNjZWxsYW5lb3Vz/LzNweC1saW5lYXIt/ZmlsbGV0LWNvbW1v/bi1pY29uL2RlZmF1/bHQtbWFsZS1hdmF0/YXItMS5wbmc'
+          }
+        }
+      };
 
-            const response= await createUserWithEmailAndPassword(auth,email, password);
-                  console.log('response.User',response.user)
-            const users = response.user;
-//             try {
-//               await sendEmailVerification(user);
-//               console.log('Verification email sent.');
-//             } catch (error) {
-//               console.error('Error sending verification email:', error);
-// }
-//               //  setMessage('Verification email sent. Please check your inbox.');
-//                Alert.alert('Success', 'Verification email sent. Please check your inbox.');
-              setIsAuthenticated(true); // Update authentication state
-
-                await setDoc(doc(db, "users", response?.user?.uid),{
-                  email:email,
-                  
-                  profileImage:photoUrl || 'https://imgs.search.brave.com/SRTQLz_BmOq7xwzV7ls7bV62QzMZtDrGSacNS5G1d1A/rs:fit:500:0:0:0/g:ce/aHR0cHM6Ly9pY29u/cy52ZXJ5aWNvbi5j/b20vcG5nLzEyOC9t/aXNjZWxsYW5lb3Vz/LzNweC1saW5lYXIt/ZmlsbGV0LWNvbW1v/bi1pY29uL2RlZmF1/bHQtbWFsZS1hdmF0/YXItMS5wbmc',
-                  userId:response?.user?.uid
-                  
-                })
-        // router.replace('/(auth)/userprofile');
-     
-          console.log('userprofile')
-  // router.replace('/userprofile')
-
-            return response?.user?.uid
-    } catch (e) { 
-      let errorMessage = e.message;
-      if (errorMessage.includes('email-already-in-use')) {
-        errorMessage = 'Email already in use';   
+      // Disable email confirmation if auto-verify is true
+      if (autoVerify) {
+        signUpOptions.options.emailRedirectTo = undefined;
       }
-      if (errorMessage.includes('auth/invalid-email')) {
-        errorMessage = 'Invalid email';   
-      } 
-      if (errorMessage.includes('auth/weak-password')) {
-        errorMessage = 'Weak password';   
+
+      const { data, error } = await supabase.auth.signUp(signUpOptions);
+
+      if (error) {
+        throw error;
       }
-      // console.error('Signup failed:', e);
-      Alert.alert('Error', errorMessage)
+
+      if (data.user) {
+        console.log('✅ User created successfully:', data.user.id);
+        
+        // If auto-verify is enabled and user needs confirmation, auto-confirm them
+        if (autoVerify && !data.user.email_confirmed_at) {
+          try {
+            console.log('🔄 Auto-confirming user email...');
+            // Note: This requires admin privileges or RLS policy adjustments
+            // For now, we'll proceed with the assumption that email confirmation is disabled in Supabase settings
+          } catch (confirmError) {
+            console.warn('⚠️ Auto-confirmation failed, but continuing...', confirmError);
+          }
+        }
+        
+        // Set user data immediately after successful registration
+        setUser({
+          uid: data.user.id,
+          id: data.user.id,
+          email: data.user.email,
+          full_name: fullName || '',
+          fullName: fullName || '',
+          profile_image: photoUrl || 'https://imgs.search.brave.com/SRTQLz_BmOq7xwzV7ls7bV62QzMZtDrGSacNS5G1d1A/rs:fit:500:0:0:0/g:ce/aHR0cHM6Ly9pY29u/cy52ZXJ5aWNvbi5j/b20vcG5nLzEyOC9t/aXNjZWxsYW5lb3Vz/LzNweC1saW5lYXIt/ZmlsbGV0LWNvbW1v/bi1pY29uL2RlZmF1/bHQtbWFsZS1hdmF0/YXItMS5wbmc',
+          profileImage: photoUrl || 'https://imgs.search.brave.com/SRTQLz_BmOq7xwzV7ls7bV62QzMZtDrGSacNS5G1d1A/rs:fit:500:0:0:0/g:ce/aHR0cHM6Ly9pY29u/cy52ZXJ5aWNvbi5j/b20vcG5nLzEyOC9t/aXNjZWxsYW5lb3Vz/LzNweC1saW5lYXIt/ZmlsbGV0LWNvbW1v/bi1pY29uL2RlZmF1/bHQtbWFsZS1hdmF0/YXItMS5wbmc'
+        });
+        setIsAuthenticated(true);
+        
+        // Set profile completion states for new user (profile is incomplete initially)
+        setIsProfileComplete(false);
+        setIsCollegeSelected(false);
+        
+        console.log('✅ User states set - isAuthenticated: true, isProfileComplete: false');
+        
+        // User profile will be created automatically by database trigger
+        console.log('✅ User profile will be created automatically by database trigger');
+
+        return data.user.id;
+      }
+    } catch (error) {
+      console.error('Registration failed:', error);
+      const errorMessage = handleSupabaseError(error);
+      Alert.alert('Registration Error', errorMessage);
+      return false;
     }
   }
 
   const updateUserProfile = async (profileData) => {
     try {
-      const userRef = doc(db, "users", user.uid);
-      await updateDoc(userRef, profileData);
-      setUser(prev => ({...prev, ...profileData}));
+      if (!user?.uid) {
+        console.error('❌ Update profile failed: User not authenticated');
+        console.log('Current user state:', user);
+        console.log('Is authenticated:', isAuthenticated);
+        throw new Error('User not authenticated');
+      }
+
+      console.log('🔄 Updating user profile for:', user.uid);
+      const { error } = await supabase
+        .from('users')
+        .update({
+          ...profileData,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', user.uid);
+
+      if (error) {
+        console.error('Database update error:', error);
+        throw error;
+      }
+
+      // Update local user state
+      setUser(prev => ({ ...prev, ...profileData }));
+      
+      // Force re-check profile completion status
+      console.log('🔄 Re-checking profile completion status...');
+      const profileComplete = await checkUserProfileCompletion(user.uid);
+      const collegeSelected = await checkUserCollegeSelection(user.uid);
+      
+      console.log('Updated states:', { profileComplete, collegeSelected });
+      setIsProfileComplete(profileComplete);
+      setIsCollegeSelected(collegeSelected);
+      
+      console.log('✅ User profile updated successfully');
       return true;
     } catch (error) {
       console.error("Error updating profile:", error);
-      throw error;
+      throw new Error(handleSupabaseError(error));
     }
   };
+
   const checkUserCollegeSelection = async (userId) => {
-    const userDocRef = doc(db, 'users', userId);
-    const userDoc = await getDoc(userDocRef);
-  
-    if (userDoc.exists()) {
-      const userData = userDoc.data();
-      // Check if the college field is filled
-      return userData.college && userData.college.name; // Adjust based on your profile fields
+    try {
+      const { data, error } = await supabase
+        .from('users')
+        .select('college')
+        .eq('id', userId)
+        .single();
+      
+      if (error && error.code !== 'PGRST116') {
+        console.error('Error checking college selection:', error);
+        return false;
+      }
+
+      return data?.college?.name ? true : false;
+    } catch (error) {
+      console.error('Error checking college selection:', error);
+      return false;
     }
-    return false 
-  
-}
+  };
 
   const updateUserCollege = async (college) => {
     try {
-      const userRef = doc(db, "users", user.uid);
-      await updateDoc(userRef, { college });
-      setUser(prev => ({...prev, college}));
+      if (!user?.uid) {
+        console.error('❌ Update college failed: User not authenticated');
+        console.log('Current user state:', user);
+        console.log('Is authenticated:', isAuthenticated);
+        
+        // Try to get current user from Supabase
+        const { data: { user: currentUser } } = await supabase.auth.getUser();
+        if (currentUser) {
+          console.log('🔄 Found authenticated user, updating user state...');
+          setUser({
+            uid: currentUser.id,
+            email: currentUser.email,
+            ...currentUser.user_metadata
+          });
+          setIsAuthenticated(true);
+          
+          // Try again with the updated user
+          const { error } = await supabase
+            .from('users')
+            .update({ college })
+            .eq('id', currentUser.id);
+
+          if (error) {
+            console.error('Database update error:', error);
+            throw error;
+          }
+
+          setUser(prev => ({ ...prev, college }));
+          console.log('✅ College updated successfully');
+          return { uid: currentUser.id, ...currentUser.user_metadata, college };
+        }
+        
+        throw new Error('User not authenticated');
+      }
+
+      console.log('🔄 Updating college for user:', user.uid);
+      const { error } = await supabase
+        .from('users')
+        .update({ college })
+        .eq('id', user.uid);
+
+      if (error) {
+        console.error('Database update error:', error);
+        throw error;
+      }
+
+      setUser(prev => ({ ...prev, college }));
+      console.log('✅ College updated successfully');
       return user;
     } catch (error) {
       console.error("Error updating college:", error);
+      throw new Error(handleSupabaseError(error));
+    }
+  };
+
+  const checkUserProfileCompletion = async (userId) => {
+    try {
+      const { data, error } = await supabase
+        .from('users')
+        .select('full_name, branch, passout_year, college')
+        .eq('id', userId)
+        .single();
+
+      if (error && error.code !== 'PGRST116') {
+        console.error('Error checking profile completion:', error);
+        return false;
+      }
+
+      // Check if all required profile fields are completed
+      const isComplete = !!(
+        data?.full_name?.trim() && 
+        data?.branch?.trim() && 
+        data?.passout_year?.trim() && 
+        data?.college?.name
+      );
+
+      console.log('Profile completion check:', {
+        full_name: !!data?.full_name?.trim(),
+        branch: !!data?.branch?.trim(),
+        passout_year: !!data?.passout_year?.trim(),
+        college: !!data?.college?.name,
+        isComplete
+      });
+
+      return isComplete;
+    } catch (error) {
+      console.error('Error checking profile completion:', error);
+      return false;
+    }
+  };
+
+  // Google Sign In functions (placeholder for Google OAuth with Supabase)
+  const registerWithGoogleCredentials = async (credentials) => {
+    try {
+      // This would be implemented with Supabase OAuth
+      console.log('Google registration with Supabase not yet implemented');
+      return null;
+    } catch (error) {
+      console.error('Google registration error:', error);
       throw error;
     }
   };
 
-  // const sendVerificationEmail = async () => {
-  //   const user = auth.currentUser;
-
-  //   if (!user) {
-  //     console.error("User is not authenticated");
-  //     return;
-  //   }
-
-  //   try {
-  //     const idToken = await user.getIdToken();
-  //     await user.sendEmailVerification();
-  //     console.log("Verification email sent successfully");
-  //   } catch (error) {
-  //     console.error("Error sending verification email:", error);
-  //   }
-  // };
-
-  const checkUserProfileCompletion = async (userId) => {
-    const userDocRef = doc(db, 'users', userId);
-    const userDoc = await getDoc(userDocRef);
-
-    if (userDoc.exists()) {
-      const userData = userDoc.data();
-      // Check if the necessary fields are filled
-      return userData.fullName && userData.college.name; // Adjust based on your profile fields
+  const signInWithGoogle = async (credentials) => {
+    try {
+      // This would be implemented with Supabase OAuth
+      console.log('Google sign in with Supabase not yet implemented');
+      return null;
+    } catch (error) {
+      console.error('Google sign in error:', error);
+      throw error;
     }
-    return false;
   };
 
   return (
-    <AuthContext.Provider value={{ isAuthenticated, user, login, loginOut, register, updateUserProfile, updateUserCollege, isProfileComplete, isCollegeSelected,registerWithGoogleCredentials, signInWithGoogle }}>
+    <AuthContext.Provider value={{ 
+      isAuthenticated, 
+      user,
+      login,
+      loginOut, 
+      register,
+      updateUserProfile,
+      updateUserCollege, 
+      isProfileComplete, 
+      isCollegeSelected,
+      registerWithGoogleCredentials, 
+      signInWithGoogle 
+    }}>
       {children}
     </AuthContext.Provider>
   );
 }
+
 export const useAuth = () => {
   const value = useContext(AuthContext);
   if (value === undefined) {

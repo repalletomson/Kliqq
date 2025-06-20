@@ -27,8 +27,9 @@ import {
   setDoc,
   increment,
 } from "firebase/firestore";
-import { db, auth } from "../config/firebaseConfig";
+import { db } from "../config/firebaseConfig";
 import { AES, enc } from "react-native-crypto-js";
+import { useAuth } from "../context/authContext";
 
 // Modern black theme colors
 const COLORS = {
@@ -85,6 +86,7 @@ export const MessageInput = React.memo(
     scrollToBottom,
     disappearingMessages,
   }) => {
+    const { user } = useAuth();
     const [message, setMessage] = useState("");
     const [sending, setSending] = useState(false);
     const [inputHeight, setInputHeight] = useState(36);
@@ -166,7 +168,7 @@ export const MessageInput = React.memo(
       const updateTypingStatus = async (isTyping) => {
         try {
           const chatDoc = await getDoc(chatRef);
-          if (!auth.currentUser) return;
+          if (!user?.uid) return;
           
           if (!chatDoc.exists()) {
             await setDoc(chatRef, { typingUsers: [] });
@@ -176,11 +178,11 @@ export const MessageInput = React.memo(
 
           if (isTyping) {
             await updateDoc(chatRef, { 
-              typingUsers: arrayUnion(auth.currentUser.uid) 
+              typingUsers: arrayUnion(user.uid) 
             });
           } else {
             await updateDoc(chatRef, { 
-              typingUsers: arrayRemove(auth.currentUser.uid) 
+              typingUsers: arrayRemove(user.uid) 
             });
           }
         } catch (error) {
@@ -238,7 +240,7 @@ export const MessageInput = React.memo(
     };
 
     const handleSendMessage = useCallback(async () => {
-      if (sending || message.trim() === "" || !isMounted.current) return;
+      if (sending || message.trim() === "" || !isMounted.current || !user?.uid) return;
 
       try {
         setSending(true);
@@ -255,14 +257,14 @@ export const MessageInput = React.memo(
 
         const messageData = {
           text: encryptedMessage,
-          sender: auth.currentUser.uid,
-          name: auth.currentUser.displayName || "User",
-          userAvatar: auth.currentUser.photoURL || null,
+          sender: user.uid,
+          name: user.displayName || user.full_name || "User",
+          userAvatar: user.photoURL || user.profile_image || null,
           timestamp: now,
           type: "text",
           reactions: {},
           status: "sent",
-          readBy: { [auth.currentUser.uid]: true },
+          readBy: { [user.uid]: true },
           unreadBy: [recipientId],
           ...(replyingTo && {
             replyTo: {
@@ -298,7 +300,7 @@ export const MessageInput = React.memo(
         });
 
         // Update unread count
-        const unreadCountRef = doc(db, "unreadCounts", recipientId, "senders", auth.currentUser.uid);
+        const unreadCountRef = doc(db, "unreadCounts", recipientId, "senders", user.uid);
         const unreadCountDoc = await getDoc(unreadCountRef);
 
         if (unreadCountDoc.exists()) {
@@ -365,7 +367,7 @@ export const MessageInput = React.memo(
                 <View style={styles.replyContainer}>
                   <View style={styles.replyContent}>
                     <Text style={styles.replyLabel}>
-                      Replying to {replyingTo.sender === auth.currentUser.uid ? "yourself" : replyingTo.name}
+                      Replying to {replyingTo.sender === user.uid ? "yourself" : replyingTo.name}
                     </Text>
                     <Text style={styles.replyText} numberOfLines={1}>
                       {replyingTo.type === "text" 

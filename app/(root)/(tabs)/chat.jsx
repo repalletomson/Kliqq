@@ -28,35 +28,42 @@ import {
   getDocs,
   addDoc,
   deleteDoc,
-  updateDoc
+  updateDoc,
+  serverTimestamp
 } from 'firebase/firestore';
-import { ref, deleteObject, listAll } from 'firebase/storage';
+
 import { router } from 'expo-router';
 import { useAuth } from '../../../context/authContext';
-import { db, auth, storage } from '../../../config/firebaseConfig';
+import { db } from '../../../config/firebaseConfig';
+import { supabase } from '../../../config/supabaseConfig';
 import { formatMessageTime } from '../../../utiles/dateFormat';
-import { SearchModal } from '../../../components/SearchModal';
+
 import { CHAT_TYPES } from '../../../types/index';
 import { AES, enc } from "react-native-crypto-js";
+import { AppText } from '../../_layout';
+import { useSafeNavigation } from '../../../hooks/useSafeNavigation';
 
 const DEFAULT_PROFILE='https://assets.grok.com/users/8c354dfe-946c-4a32-b2de-5cb3a8ab9776/generated/h4epnwdFODX6hW0L/image.jpg';
 
-// Updated dark theme colors
+// Updated WhatsApp-like dark theme colors
 const COLORS = {
   background: '#000000',
-  secondaryBackground: '#000000',
+  secondaryBackground: '#111111',
   surface: '#111111',
+  cardBg: '#111111',
   textPrimary: '#FFFFFF',
   textSecondary: '#A1A1AA',
-  textTertiary: '#71717A',
-  accent: '#3B82F6',
-  separator: '#27272A',
+  textTertiary: '#6B7280',
+  accent: '#8B5CF6',
+  primary: '#8B5CF6',
   border: '#27272A',
-  primary: '#3B82F6',
+  shadow: 'rgba(0, 0, 0, 0.3)',
+  headerBg: '#111111',
+  inputBg: '#1A1A1A',
   success: '#10B981',
-  unreadBackground: '#1E3A8A',
-  searchBackground: '#111111',
-  shadow: 'rgba(0, 0, 0, 0.3)'
+  unreadBackground: '#09090B',
+  searchBackground: '#1A1A1A',
+  separator: '#27272A',
 };
 
 const { width } = Dimensions.get('window');
@@ -79,20 +86,55 @@ export default function ChatList() {
   const searchTimeout = useRef(null);
   const chatsUnsubscribe = useRef(null);
 
-// chats.js (only showing the unread count retrieval part)
-useEffect(() => {
-  const q = query(
-    collection(db, "unreadCounts", auth.currentUser.uid, "senders")
-  );
-  const unsubscribe = onSnapshot(q, (snapshot) => {
-    const counts = {};
-    snapshot.docs.forEach((doc) => {
-      counts[doc.id] = doc.data().count;
-    });
-    setUnreadCounts(counts);
+  // Universal safe navigation
+  const { safeNavigate, safeBack } = useSafeNavigation({
+    modals: [
+      () => showNewChatModal && setShowNewChatModal(false),
+      // Add other modal close functions here if needed
+    ],
+    onCleanup: () => {
+      // Clean up any FlatList or state here
+    }
   });
-  return () => unsubscribe();
-}, []);
+
+  // Guard against null user
+  if (!user?.uid) {
+    return (
+      <View style={{ 
+        flex: 1, 
+        backgroundColor: COLORS.background, 
+        justifyContent: 'center', 
+        alignItems: 'center' 
+      }}>
+        <ActivityIndicator size="large" color={COLORS.accent} />
+        <AppText style={{ 
+          color: COLORS.textSecondary, 
+          marginTop: 16, 
+          fontSize: 16 
+        }}>
+          Loading user data...
+        </AppText>
+      </View>
+    );
+  }
+
+  // chats.js (only showing the unread count retrieval part)
+  useEffect(() => {
+    // Guard against null user
+    if (!user?.uid) return;
+    
+    const q = query(
+      collection(db, "unreadCounts", user.uid, "senders")
+    );
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const counts = {};
+      snapshot.docs.forEach((doc) => {
+        counts[doc.id] = doc.data().count;
+      });
+      setUnreadCounts(counts);
+    });
+    return () => unsubscribe();
+  }, [user?.uid]);
 
   useEffect(() => {
     const backHandler = BackHandler.addEventListener(
@@ -121,10 +163,48 @@ useEffect(() => {
 
   const fetchUserDetails = async (userId) => {
     try {
-      const userDoc = await getDoc(doc(db, 'users', userId));
-      return userDoc.exists() ? userDoc.data() : null;
+      const { data, error } = await supabase
+        .from('users')
+        .select(`
+          id,
+          username,
+          full_name,
+          profile_image,
+          college,
+          branch,
+          passout_year,
+          bio,
+          last_seen,
+          is_online
+        `)
+        .eq('id', userId)
+        .single();
+
+      if (error) {
+        console.error('Error fetching user from Supabase:', error);
+        return null;
+      }
+
+      return {
+        id: data.id,
+        uid: data.id,
+        fullName: data.full_name,
+        full_name: data.full_name,
+        displayName: data.full_name,
+        username: data.username,
+        profileImage: data.profile_image,
+        profile_image: data.profile_image,
+        photoURL: data.profile_image,
+        college: data.college,
+        branch: data.branch,
+        passout_year: data.passout_year,
+        bio: data.bio,
+        about: data.bio,
+        lastSeen: data.last_seen ? new Date(data.last_seen) : null,
+        isOnline: data.is_online || false
+      };
     } catch (error) {
-      console.error('Error fetching user details:', error);
+      console.error('Error fetching user from Supabase:', error);
       return null;
     }
   };
@@ -134,28 +214,32 @@ useEffect(() => {
       setLoading(true);
       
       // Check if user is authenticated
-      if (!auth.currentUser?.uid) {
+      if (!user?.uid) {
         throw new Error('User not authenticated');
       }
 
+      // Enhanced query to capture all chats including newly created ones
       const chatsQuery = query( 
         collection(db, 'chats'),
-        where('participants', 'array-contains', auth.currentUser.uid),
-        orderBy('lastMessageTime', 'desc')
+        where('participants', 'array-contains', user.uid)
+        // Removed orderBy to ensure all chats are captured first
       );
       
       chatsUnsubscribe.current = onSnapshot(chatsQuery, async (snapshot) => {
         try {
+          console.log(`📥 Chat listener triggered - ${snapshot.docs.length} chats found`);
+          
           const chatPromises = snapshot.docs.map(async (doc) => {
             const chatData = doc.data();
             if (chatData.type === CHAT_TYPES.GROUP) {
               return {
                 id: doc.id,
                 ...chatData,
-                isGroup: true
+                isGroup: true,
+                lastMessageTime: chatData.lastMessageTime || chatData.createdAt || new Date()
               };
             }
-            const otherUserId = getOtherParticipantId(chatData.participants, auth.currentUser.uid);
+            const otherUserId = getOtherParticipantId(chatData.participants, user.uid);
             if (!otherUserId) return null;
 
             const userDetails = await fetchUserDetails(otherUserId);
@@ -165,19 +249,29 @@ useEffect(() => {
               ...chatData,
               recipient: userDetails,
               recipientId: otherUserId,
-              unreadCount: chatData.unreadCount || 0
+              unreadCount: chatData.unreadCount || 0,
+              lastMessageTime: chatData.lastMessageTime || chatData.createdAt || new Date()
             };
           });
 
           const populatedChats = (await Promise.all(chatPromises)).filter(Boolean);
           
+          // Sort chats by lastMessageTime in memory (after fetching)
+          populatedChats.sort((a, b) => {
+            const timeA = a.lastMessageTime?.toDate?.() || a.lastMessageTime || new Date(0);
+            const timeB = b.lastMessageTime?.toDate?.() || b.lastMessageTime || new Date(0);
+            return timeB - timeA;
+          });
+          
+          console.log(`✅ Loaded ${populatedChats.length} chats successfully`);
           setChats(populatedChats);
           if (mounted.current) {
             setError(null);
           }
 
+          // Setup unread counts listener
           const unreadQ = query(
-            collection(db, "unreadCounts", auth.currentUser.uid, "senders")
+            collection(db, "unreadCounts", user.uid, "senders")
           );
           const unreadUnsubscribe = onSnapshot(unreadQ, (snapshot) => {
             const counts = {};
@@ -195,12 +289,10 @@ useEffect(() => {
             console.error("Error loading chat details:", err);
             setError('Failed to load chat details');
           }
-          console.error("Error loading chat details:", err);
         } finally {
           if (mounted.current) {
             setLoading(false);
           }
-          setLoading(false)
         }
       }, (err) => {
         console.error("Firestore listener error:", err);
@@ -214,10 +306,10 @@ useEffect(() => {
       console.error("Failed to initialize chat list:", err);
       if (mounted.current) {
         setError('Failed to initialize chat list');
+        setLoading(false);
       }
-      setLoading(false);
     }
-  }, [getOtherParticipantId]);
+  }, [getOtherParticipantId, user?.uid]);
 
   useEffect(() => {
     loadChats();
@@ -229,9 +321,9 @@ useEffect(() => {
     };
   }, [loadChats]);
 
-  // Modified handleSearch to fetch all users instead of just same college
+  // Modified handleSearch to fetch all users from Supabase instead of Firebase
   const handleSearch = useCallback(async (queryText) => {
-    if (!queryText.trim() || !auth.currentUser?.uid) {
+    if (!queryText.trim() || !user?.uid) {
       setSearchResults([]);
       setSearching(false);
       return;
@@ -239,35 +331,62 @@ useEffect(() => {
 
     setSearching(true);
     try {
-      // Query all users without college filter
-      const usersRef = collection(db, 'users');
-      const usersQuery = query(usersRef);
+      console.log('🔍 Searching for users with query:', queryText);
+      
+      // Query all users from Supabase with multiple search fields
+      const { data: usersData, error } = await supabase
+        .from('users')
+        .select(`
+          id,
+          username,
+          full_name,
+          profile_image,
+          college,
+          branch,
+          passout_year,
+          bio
+        `)
+        .neq('id', user.uid)
+        .or(`full_name.ilike.%${queryText}%,username.ilike.%${queryText}%,branch.ilike.%${queryText}%`)
+        .limit(20);
 
-      const snapshot = await getDocs(usersQuery);
-
-      // Filter results by username and exclude the current user
-      const results = snapshot.docs
-        .map(doc => ({ id: doc.id, ...doc.data() }))
-        .filter(u => 
-          u.id !== auth.currentUser.uid &&
-          u.fullName?.toLowerCase().includes(queryText.toLowerCase())
-        );
-
-      if (mounted.current) {
-        setSearchResults(results);
+      if (error) {
+        console.error('❌ Supabase search error:', error);
+        setSearchResults([]);
+        return;
       }
-      setSearchResults(results)
-      console.log("dfbdj",searchResults)
 
+      console.log(`✅ Found ${usersData?.length || 0} users matching "${queryText}"`);
+      
+      // Transform data for compatibility
+      const transformedUsers = usersData?.map(userData => ({
+        id: userData.id,
+        userId: userData.id, // For compatibility
+        uid: userData.id, // For compatibility
+        fullName: userData.full_name,
+        full_name: userData.full_name,
+        displayName: userData.full_name,
+        username: userData.username,
+        profileImage: userData.profile_image,
+        profile_image: userData.profile_image,
+        photoURL: userData.profile_image,
+        college: userData.college,
+        branch: userData.branch,
+        passout_year: userData.passout_year,
+        bio: userData.bio,
+        about: userData.bio
+      })) || [];
+
+      setSearchResults(transformedUsers);
+      console.log('Search results set:', transformedUsers.length);
+      
     } catch (error) {
-      console.error('Search error:', error);
-      Alert.alert('Search Failed', 'Unable to search users');
+      console.error('❌ Search error:', error);
+      setSearchResults([]);
     } finally {
-      if (mounted.current) {
-      }
       setSearching(false);
     }
-  }, []);
+  }, [user?.uid]);
 
   // Search debouncing effect
   useEffect(() => {
@@ -284,22 +403,6 @@ useEffect(() => {
       // Ensure chatId is valid
       if (!chatId) {
         throw new Error("Invalid chatId");
-      }
-     
-      // Delete images from storage
-      const imagesRef = ref(storage, `chats/${chatId}`);
-        
-      // Check if imagesRef is valid
-      if (imagesRef) {
-        try {
-          const imagesList = await listAll(imagesRef);
-  
-          if (imagesList.items.length > 0) {
-            await Promise.all(imagesList.items.map(item => deleteObject(item)));
-          }
-        } catch (error) {
-          console.error('Error listing or deleting images:', error);
-        }
       }
   
       // Delete messages
@@ -331,7 +434,7 @@ useEffect(() => {
       const chatsRef = collection(db, 'chats');
       const q = query(
         chatsRef,
-        where('participants', 'array-contains', auth.currentUser.uid)
+        where('participants', 'array-contains', user.uid)
       );
       const snapshot = await getDocs(q);
       
@@ -348,13 +451,23 @@ useEffect(() => {
           }
         });
       } else {
-        const newChatRef = await addDoc(chatsRef, {
-          participants: [auth.currentUser.uid, recipientId],
-          createdAt: new Date(),
-          lastMessageTime: new Date(),
-          lastMessage: null
-        });
+        console.log('🔥 Creating new chat with recipient:', recipientId);
+        
+        const newChatData = {
+          participants: [user.uid, recipientId],
+          createdAt: serverTimestamp(),
+          lastMessageTime: serverTimestamp(),
+          lastMessage: null,
+          lastSender: null,
+          type: 'direct', // Add type for clarity
+          unreadCount: 0
+        };
 
+        const newChatRef = await addDoc(chatsRef, newChatData);
+        
+        console.log('✅ New chat created successfully:', newChatRef.id);
+
+        // Navigate to the new chat
         router.push({
           pathname: '/(root)/[chatRoom]',
           params: { 
@@ -362,13 +475,18 @@ useEffect(() => {
             recipientId 
           }
         });
+        
+        // Force refresh chat list after a short delay to ensure the new chat appears
+        setTimeout(() => {
+          loadChats();
+        }, 500);
       }
       setSearchQuery('');
     } catch (error) {
       console.error('Chat navigation error:', error);
       Alert.alert('Error', 'Failed to navigate to chat');
     }
-  }, []);
+  }, [user.uid, loadChats]);
 
   const handleChatNavigation = useCallback(async (recipientId) => {
     try {
@@ -380,7 +498,7 @@ useEffect(() => {
       const chatsRef = collection(db, 'chats');
       const q = query(
         chatsRef,
-        where('participants', 'array-contains', auth.currentUser.uid)
+        where('participants', 'array-contains', user.uid)
       );
       const snapshot = await getDocs(q);
       
@@ -398,7 +516,7 @@ useEffect(() => {
         });
       } else {
         const newChatRef = await addDoc(chatsRef, {
-          participants: [auth.currentUser.uid, recipientId],
+          participants: [user.uid, recipientId],
           createdAt: new Date(),
           lastMessageTime: new Date(),
           lastMessage: null
@@ -417,7 +535,7 @@ useEffect(() => {
       console.error('Chat navigation error:', error);
       Alert.alert('Error', 'Failed to navigate to chat');
     }
-  }, []);
+  }, [user.uid]);
 
   const formatTime = (timestamp) => {
     if (!timestamp) return '';
@@ -435,7 +553,7 @@ useEffect(() => {
   // Modern Header Component
   const Header = () => (
     <View style={{
-      backgroundColor: COLORS.background,
+      backgroundColor: COLORS.headerBg,
       paddingTop: 60,
       paddingBottom: 20,
       paddingHorizontal: 20,
@@ -453,14 +571,14 @@ useEffect(() => {
         alignItems: 'center',
       }}>
         {/* Chat Title */}
-        <Text style={{
+        <AppText style={{
           fontSize: 34,
           fontWeight: '700',
           color: COLORS.textPrimary,
           letterSpacing: 0.4,
         }}>
           Chat
-        </Text>
+        </AppText>
         
         {/* Action Buttons */}
         <View style={{ flexDirection: 'row', gap: 12 }}>
@@ -645,7 +763,7 @@ useEffect(() => {
               alignItems: 'center',
               marginBottom: 6,
             }}>
-              <Text style={{
+              <AppText style={{
                 fontSize: 17,
                 fontWeight: hasUnread ? '700' : '600',
                 color: COLORS.textPrimary,
@@ -653,9 +771,9 @@ useEffect(() => {
                 flex: 1,
               }} numberOfLines={1}>
                 {item.recipient?.fullName || 'Unknown User'}
-              </Text>
+              </AppText>
               
-              <Text style={{
+              <AppText style={{
                 fontSize: 14,
                 color: hasUnread ? COLORS.primary : COLORS.textSecondary,
                 letterSpacing: 0.2,
@@ -663,7 +781,7 @@ useEffect(() => {
                 marginLeft: 8,
               }}>
                 {formatTime(item.lastMessageTime)}
-              </Text>
+              </AppText>
             </View>
             
             {/* Bottom Row: Message Preview and Unread Count */}
@@ -673,7 +791,7 @@ useEffect(() => {
               alignItems: 'center',
             }}>
               {/* Message Preview */}
-              <Text 
+              <AppText 
                 style={{
                   color: hasUnread ? COLORS.textPrimary : COLORS.textSecondary,
                   flex: 1,
@@ -685,7 +803,7 @@ useEffect(() => {
                 numberOfLines={1}
               >
                 {handleDecrypt(item.lastMessage) || 'No messages yet'}
-              </Text>
+              </AppText>
               
               {/* Unread Count Badge and Status Icons */}
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
@@ -705,13 +823,13 @@ useEffect(() => {
                     alignItems: 'center',
                     paddingHorizontal: 8,
                   }}>
-                    <Text style={{
+                    <AppText style={{
                       color: COLORS.background,
                       fontSize: 12,
                       fontWeight: '600',
                     }}>
                       {item.unreadcount > 99 ? '99+' : item.unreadcount}
-                    </Text>
+                    </AppText>
                   </View>
                 )}
               </View>
@@ -748,7 +866,7 @@ useEffect(() => {
           shadowRadius: 16,
           elevation: 8,
         }}>
-          <Text style={{
+          <AppText style={{
             fontSize: 20,
             fontWeight: '600',
             color: COLORS.textPrimary,
@@ -757,8 +875,8 @@ useEffect(() => {
             letterSpacing: 0.3
           }}>
             Delete Chat
-          </Text>
-          <Text style={{
+          </AppText>
+          <AppText style={{
             color: COLORS.textSecondary,
             textAlign: 'center',
             marginBottom: 24,
@@ -766,7 +884,7 @@ useEffect(() => {
             letterSpacing: 0.2
           }}>
             Are you sure you want to delete this chat? This action cannot be undone.
-          </Text>
+          </AppText>
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 12 }}>
             <TouchableOpacity
               onPress={() => setShowDeleteModal(false)}
@@ -778,7 +896,7 @@ useEffect(() => {
                 borderRadius: 12,
               }}
             >
-              <Text style={{ color: COLORS.textPrimary, fontWeight: '600', letterSpacing: 0.3 }}>Cancel</Text>
+              <AppText style={{ color: COLORS.textPrimary, fontWeight: '600', letterSpacing: 0.3 }}>Cancel</AppText>
             </TouchableOpacity>
             <TouchableOpacity
               onPress={() => deleteChat(selectedChat?.id)}
@@ -790,7 +908,7 @@ useEffect(() => {
                 borderRadius: 12,
               }}
             >
-              <Text style={{ color: '#DC2626', fontWeight: '600', letterSpacing: 0.3 }}>Delete</Text>
+              <AppText style={{ color: '#DC2626', fontWeight: '600', letterSpacing: 0.3 }}>Delete</AppText>
             </TouchableOpacity>
           </View>
         </View>
@@ -799,7 +917,7 @@ useEffect(() => {
   );
 
   return (
-    <View style={{ flex: 1, backgroundColor: COLORS.secondaryBackground }}>
+    <View style={{ flex: 1, backgroundColor: COLORS.background }}>
       <StatusBar barStyle="light-content" backgroundColor={COLORS.background} />
       
       <Header />
@@ -825,7 +943,7 @@ useEffect(() => {
             marginTop: 80
           }}>
             <Ionicons name="chatbubbles-outline" size={64} color={COLORS.textTertiary} />
-            <Text style={{
+            <AppText style={{
               color: COLORS.textSecondary,
               textAlign: 'center',
               fontSize: 18,
@@ -835,8 +953,8 @@ useEffect(() => {
               marginTop: 16,
             }}>
               No conversations yet
-            </Text>
-            <Text style={{
+            </AppText>
+            <AppText style={{
               color: COLORS.textTertiary,
               textAlign: 'center',
               fontSize: 16,
@@ -845,7 +963,7 @@ useEffect(() => {
               marginTop: 8,
             }}>
               Start chatting with your friends!
-            </Text>
+            </AppText>
           </View>
         }
       />
@@ -883,7 +1001,7 @@ useEffect(() => {
               <Ionicons name="arrow-back" size={24} color={COLORS.textPrimary} />
             </TouchableOpacity>
             
-            <Text style={{
+            <AppText style={{
               fontSize: 20,
               fontWeight: '600',
               color: COLORS.textPrimary,
@@ -891,7 +1009,7 @@ useEffect(() => {
               flex: 1,
             }}>
               New Chat
-            </Text>
+            </AppText>
           </View>
 
           <View style={{ paddingHorizontal: 20, paddingVertical: 16 }}>
@@ -972,7 +1090,7 @@ useEffect(() => {
                     }}
                   />
                   <View style={{ flex: 1 }}>
-                    <Text style={{
+                    <AppText style={{
                       fontSize: 17,
                       fontWeight: '600',
                       color: COLORS.textPrimary,
@@ -980,16 +1098,16 @@ useEffect(() => {
                       marginBottom: 4,
                     }}>
                       {item.fullName || 'Unknown User'}
-                    </Text>
+                    </AppText>
                     {/* Display college name */}
                     {item.college && (
-                      <Text style={{
+                      <AppText style={{
                         fontSize: 15,
                         color: COLORS.textSecondary,
                         letterSpacing: 0.2,
                       }}>
                         @{item.college.name || 'No college information'}
-                      </Text>
+                      </AppText>
                     )}
                   </View>
                 </TouchableOpacity>
@@ -998,26 +1116,26 @@ useEffect(() => {
                 searchQuery.length > 0 ? (
                   <View style={{ padding: 40, alignItems: 'center' }}>
                     <Ionicons name="search-outline" size={48} color={COLORS.textTertiary} />
-                    <Text style={{ 
+                    <AppText style={{ 
                       color: COLORS.textSecondary, 
                       fontSize: 16, 
                       marginTop: 16,
                       fontWeight: '500' 
                     }}>
                       No users found
-                    </Text>
+                    </AppText>
                   </View>
                 ) : (
                   <View style={{ padding: 40, alignItems: 'center' }}>
                     <Ionicons name="people-outline" size={48} color={COLORS.textTertiary} />
-                    <Text style={{ 
+                    <AppText style={{ 
                       color: COLORS.textSecondary, 
                       fontSize: 16, 
                       marginTop: 16,
                       fontWeight: '500' 
                     }}>
                       Search for users to chat with
-                    </Text>
+                    </AppText>
                   </View>
                 )
               }

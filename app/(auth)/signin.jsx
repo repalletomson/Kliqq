@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { 
   View, 
   Text, 
@@ -9,18 +9,201 @@ import {
   ScrollView, 
   StatusBar,
   Alert,
-  Animated,
   Dimensions,
+  Image,
+  Modal,
 } from 'react-native';
 import { router, useNavigation } from 'expo-router';
 import { AntDesign, MaterialIcons, Feather } from '@expo/vector-icons';
 import { GoogleSignin } from '@react-native-google-signin/google-signin';
 import { useAuth } from '../../context/authContext';
-import { LinearGradient } from 'expo-linear-gradient';
+import { supabase } from '../../config/supabaseConfig';
+import Animated, { useSharedValue, useAnimatedStyle, withSpring, withTiming } from 'react-native-reanimated';
 
 const { width, height } = Dimensions.get('window');
 
-// Clean solid colors for better visibility
+// Create a stable password input component outside the main component
+const StablePasswordInput = React.memo(({ 
+  placeholder, 
+  value, 
+  onChangeText,
+  icon,
+  inputStyle = {}
+}) => {
+  const [showPassword, setShowPassword] = useState(false);
+  const inputRef = useRef(null);
+  
+  const togglePassword = useCallback(() => {
+    setShowPassword(prev => !prev);
+    // Keep focus on the input after toggling
+    setTimeout(() => {
+      inputRef.current?.focus();
+    }, 50);
+  }, []);
+
+  return (
+    <View style={{
+      backgroundColor: '#2A2A2A',
+      borderRadius: 16,
+      borderWidth: 2,
+      borderColor: '#404040',
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingHorizontal: 16,
+      paddingVertical: 4,
+      marginVertical: 8,
+      height: 56,
+      ...inputStyle
+    }}>
+      {icon && (
+        <View style={{ marginRight: 12 }}>
+          {icon}
+        </View>
+      )}
+      <TextInput
+        ref={inputRef}
+        placeholder={placeholder}
+        placeholderTextColor="#999999"
+        value={value}
+        onChangeText={onChangeText}
+        secureTextEntry={!showPassword}
+        autoCapitalize="none"
+        autoComplete="off"
+        autoCorrect={false}
+        returnKeyType="done"
+        blurOnSubmit={false}
+        style={{
+          flex: 1,
+          color: '#FFFFFF',
+          fontSize: 16,
+          fontWeight: '400',
+        }}
+      />
+      <TouchableOpacity
+        onPress={togglePassword}
+        style={{ padding: 8 }}
+      >
+        <Feather 
+          name={showPassword ? "eye-off" : "eye"} 
+          size={20} 
+          color="#999999" 
+        />
+      </TouchableOpacity>
+    </View>
+  );
+});
+
+StablePasswordInput.displayName = 'StablePasswordInput';
+
+// Error Modal Component
+const ErrorModal = ({ visible, message, type, onClose }) => {
+  const modalScale = useSharedValue(0);
+  const modalOpacity = useSharedValue(0);
+
+  useEffect(() => {
+    if (visible) {
+      modalOpacity.value = withTiming(1, { duration: 300 });
+      modalScale.value = withSpring(1, { damping: 15 });
+    } else {
+      modalOpacity.value = withTiming(0, { duration: 200 });
+      modalScale.value = withTiming(0, { duration: 200 });
+    }
+  }, [visible]);
+
+  const animatedStyle = useAnimatedStyle(() => {
+    return {
+      opacity: modalOpacity.value,
+      transform: [{ scale: modalScale.value }],
+    };
+  });
+
+  const getIcon = () => {
+    switch (type) {
+      case 'error':
+        return <MaterialIcons name="error-outline" size={32} color="#EF4444" />;
+      case 'success':
+        return <MaterialIcons name="check-circle-outline" size={32} color="#10B981" />;
+      default:
+        return <MaterialIcons name="info-outline" size={32} color="#3B82F6" />;
+    }
+  };
+
+  return (
+    <Modal
+      transparent
+      visible={visible}
+      animationType="none"
+      onRequestClose={onClose}
+    >
+      <View style={{
+        flex: 1,
+        backgroundColor: 'rgba(0, 0, 0, 0.8)',
+        justifyContent: 'center',
+        alignItems: 'center',
+        paddingHorizontal: 24,
+      }}>
+        <Animated.View style={[{
+          backgroundColor: '#1A1A1A',
+          borderRadius: 20,
+          padding: 24,
+          width: '100%',
+          maxWidth: 350,
+          borderWidth: 1,
+          borderColor: '#404040',
+        }, animatedStyle]}>
+          {/* Icon */}
+          <View style={{ alignItems: 'center', marginBottom: 16 }}>
+            {getIcon()}
+          </View>
+
+          {/* Title */}
+          <Text style={{
+            color: '#FFFFFF',
+            fontSize: 18,
+            fontWeight: '700',
+            textAlign: 'center',
+            marginBottom: 12,
+          }}>
+            {type === 'error' ? 'Authentication Error' : 
+             type === 'success' ? 'Success' : 'Information'}
+          </Text>
+
+          {/* Message */}
+          <Text style={{
+            color: '#CCCCCC',
+            fontSize: 15,
+            textAlign: 'center',
+            lineHeight: 22,
+            marginBottom: 24,
+          }}>
+            {message}
+          </Text>
+
+          {/* Button */}
+          <TouchableOpacity
+            onPress={onClose}
+            style={{
+              backgroundColor: '#FFFFFF',
+              borderRadius: 12,
+              paddingVertical: 14,
+              alignItems: 'center',
+            }}
+          >
+            <Text style={{
+              color: '#000000',
+              fontSize: 16,
+              fontWeight: '600',
+            }}>
+              {type === 'success' ? 'Continue' : 'Try Again'}
+            </Text>
+          </TouchableOpacity>
+        </Animated.View>
+      </View>
+    </Modal>
+  );
+};
+
+// Black theme colors
 const colors = {
   background: '#000000',
   surface: '#1A1A1A',
@@ -29,45 +212,72 @@ const colors = {
   textMuted: '#999999',
   inputBg: '#2A2A2A',
   inputBorder: '#404040',
+  buttonBg: '#FFFFFF',
+  buttonText: '#000000',
   googleBg: '#FFFFFF',
   accent: '#3B82F6',
-  gradientStart: '#EC4899',
-  gradientEnd: '#8B5CF6',
+  error: '#EF4444',
+  success: '#10B981',
+};
+
+// Helper function to get user-friendly error messages
+const getErrorMessage = (error) => {
+  const errorCode = error?.code || error?.message || '';
+  
+  if (errorCode.includes('invalid_credentials') || errorCode.includes('Invalid login credentials')) {
+    return 'The email or password you entered is incorrect. Please check your credentials and try again.';
+  }
+  
+  if (errorCode.includes('user_not_found') || errorCode.includes('User not found')) {
+    return 'No account found with this email address. Please check your email or sign up for a new account.';
+  }
+  
+  if (errorCode.includes('wrong_password') || errorCode.includes('Invalid password')) {
+    return 'The password you entered is incorrect. Please try again or reset your password.';
+  }
+  
+  if (errorCode.includes('too_many_requests')) {
+    return 'Too many login attempts. Please wait a few minutes before trying again.';
+  }
+  
+  if (errorCode.includes('network') || errorCode.includes('Network')) {
+    return 'Network connection error. Please check your internet connection and try again.';
+  }
+  
+  if (errorCode.includes('email_not_confirmed')) {
+    return 'Please verify your email address before signing in. Check your inbox for a verification email.';
+  }
+  
+  // Default error message
+  return 'Unable to sign in. Please check your credentials and try again.';
 };
 
 function SigninScreen() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
-  const [alert, setAlert] = useState(null);
+  const [errorModal, setErrorModal] = useState({ visible: false, message: '', type: 'error' });
   const [showPassword, setShowPassword] = useState(false);
   const { login } = useAuth();
   const [isGoogleEmail, setIsGoogleEmail] = useState(false);
+  const [resetLoading, setResetLoading] = useState(false);
   
   const navigation = useNavigation();
 
   // Animation values
-  const fadeAnim = new Animated.Value(0);
-  const slideAnim = new Animated.Value(30);
+  const buttonScale = useSharedValue(1);
+  const imageOpacity = useSharedValue(0);
+  const slideY = useSharedValue(30);
 
   useEffect(() => {
+    // Configure Google Sign In
     GoogleSignin.configure({
       webClientId: '912883386678-q9jbm946ol5hr1j78059m1e6erhhi1n5.apps.googleusercontent.com',
     });
 
-    // Start animations
-    Animated.parallel([
-      Animated.timing(fadeAnim, {
-        toValue: 1,
-        duration: 600,
-        useNativeDriver: true,
-      }),
-      Animated.timing(slideAnim, {
-        toValue: 0,
-        duration: 500,
-        useNativeDriver: true,
-      }),
-    ]).start();
+    // Animate entrance
+    imageOpacity.value = withTiming(1, { duration: 800 });
+    slideY.value = withSpring(0, { damping: 15 });
 
     const configureGoogleSignIn = async () => {
       try {
@@ -81,60 +291,53 @@ function SigninScreen() {
     configureGoogleSignIn();
   }, []);
 
-  const handleLogin = async () => {
+  const showError = useCallback((message, type = 'error') => {
+    setErrorModal({ visible: true, message, type });
+  }, []);
+
+  const hideError = useCallback(() => {
+    setErrorModal({ visible: false, message: '', type: 'error' });
+  }, []);
+
+  const handleLogin = useCallback(async () => {
     if (!email || !password) {
-      setAlert({
-        type: 'error',
-        message: 'Please enter both email and password'
-      });
+      showError('Please enter both email and password to continue.');
       return;
     }
+
     try {
       setLoading(true);
-      const response = await login(email, password);
+      buttonScale.value = withSpring(0.95);
+      
+      console.log('Attempting login with:', email);
+      const response = await login(email.trim(), password);
+      
       if (response) {
-        setAlert({
-          type: 'success',
-          message: 'Welcome back! Redirecting...'
-        });
+        showError('Welcome back! Redirecting to your dashboard...', 'success');
         
         setTimeout(() => {
+          hideError();
           router.push('/(root)/(tabs)/home');
-        }, 1000);
+        }, 1500);
       }
+      
+      setTimeout(() => {
+        buttonScale.value = withSpring(1);
+      }, 150);
     } catch (error) {
-      handleAuthError(error);
+      console.error('Login error:', error);
+      const errorMessage = getErrorMessage(error);
+      showError(errorMessage);
+      buttonScale.value = withSpring(1);
     } finally {
       setLoading(false);
     }
-  };
-  
-  const handleAuthError = (error) => {
-    let message = 'An error occurred. Please try again.';
-    
-    switch (error.code) {
-      case 'auth/wrong-password':
-        message = 'Incorrect password. Please try again.';
-        break;
-      case 'auth/user-not-found':
-        message = 'No account found with this email.';
-        break;
-      case 'auth/invalid-email':
-        message = 'Invalid email address.';
-        break;
-      default:
-        message = error.message || 'Authentication failed. Please try again.';
-    }
-    
-    setAlert({
-      type: 'error',
-      message
-    });
-  };
+  }, [email, password, login, showError, hideError]);
 
-  const handleGoogleSignIn = async () => {
+  const handleGoogleSignIn = useCallback(async () => {
     try {
       setLoading(true);
+      buttonScale.value = withSpring(0.95);
       
       // Sign out first
       await GoogleSignin.signOut();
@@ -145,25 +348,92 @@ function SigninScreen() {
       // Get Google user info
       const { type, data } = await GoogleSignin.signIn();
       
-      // Set email from Google and mark it as Google email
-      setEmail(data.user.email);
-      setIsGoogleEmail(true);
+      if (data?.user) {
+        // Set email from Google and mark it as Google email
+        setEmail(data.user.email);
+        setIsGoogleEmail(true);
 
+        showError('Google account connected successfully! Please enter your password to continue.', 'success');
+        setTimeout(() => hideError(), 2000);
+      }
+      
+      setTimeout(() => {
+        buttonScale.value = withSpring(1);
+      }, 150);
     } catch (error) {
-      console.error('Error details:', {
-        name: error.name,
-        message: error.message,
-        code: error.code,
-        stack: error.stack
-      });
+      console.error('Google sign in error:', error);
+      
+      let errorMessage = 'Google sign in failed. Please try again.';
+      
+      if (error.code === '7') {
+        errorMessage = 'Network error. Please check your internet connection and try again.';
+      } else if (error.code === '5') {
+        errorMessage = 'Google sign in was cancelled. Please try again to continue.';
+      } else if (error.code === '2') {
+        errorMessage = 'Google Play Services is not available. Please update Google Play Services.';
+      }
+      
+      showError(errorMessage);
+      buttonScale.value = withSpring(1);
     } finally {
       setLoading(false);
     }
-  };
+  }, [showError, hideError]);
 
-  const GradientButton = ({ title, onPress, disabled, variant = 'primary' }) => (
+  const handleForgotPassword = useCallback(async () => {
+    if (!email.trim()) {
+      showError('Please enter your email address first, then try the forgot password option.');
+      return;
+    }
+
+    Alert.alert(
+      'Reset Password',
+      `Password reset instructions will be sent to ${email}`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { 
+          text: 'Send', 
+          onPress: async () => {
+            try {
+              setResetLoading(true);
+              
+              // Use Supabase to send password reset email
+              const { data, error } = await supabase.auth.resetPasswordForEmail(email);
+
+              if (error) {
+                throw error;
+              }
+
+              showError('Password reset email sent successfully! Please check your inbox and follow the instructions.', 'success');
+            } catch (error) {
+              console.error('Password reset error:', error);
+              showError('Failed to send reset email. Please check your email address and try again.');
+            } finally {
+              setResetLoading(false);
+            }
+          }
+        }
+      ]
+    );
+  }, [email, showError]);
+
+  const AnimatedButton = ({ title, onPress, disabled, variant = 'primary' }) => {
+    const animatedStyle = useAnimatedStyle(() => {
+      return {
+        transform: [{ scale: buttonScale.value }],
+      };
+    });
+
+    return (
+      <Animated.View style={animatedStyle}>
     <TouchableOpacity
-      onPress={onPress}
+          onPress={() => {
+            buttonScale.value = withSpring(0.95);
+            setTimeout(() => {
+              buttonScale.value = withSpring(1);
+              onPress();
+            }, 100);
+          }}
       disabled={disabled}
       style={{
         width: '100%',
@@ -171,37 +441,22 @@ function SigninScreen() {
         borderRadius: 16,
         overflow: 'hidden',
         marginVertical: 8,
-      }}
-    >
-      {variant === 'primary' ? (
-        <LinearGradient
-          colors={[colors.gradientStart, colors.gradientEnd]}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 0 }}
-          style={{
-            flex: 1,
+            backgroundColor: variant === 'primary' ? colors.buttonBg : colors.googleBg,
+            opacity: disabled ? 0.7 : 1,
             alignItems: 'center',
             justifyContent: 'center',
-            opacity: disabled ? 0.7 : 1,
           }}
         >
+          {variant === 'primary' ? (
           <Text style={{
-            color: colors.text,
+              color: colors.buttonText,
             fontSize: 16,
             fontWeight: '700',
             letterSpacing: 0.3,
           }}>
             {title}
           </Text>
-        </LinearGradient>
       ) : (
-        <View style={{
-          flex: 1,
-          backgroundColor: colors.googleBg,
-          alignItems: 'center',
-          justifyContent: 'center',
-          opacity: disabled ? 0.7 : 1,
-        }}>
           <View style={{ flexDirection: 'row', alignItems: 'center' }}>
             <AntDesign name="google" size={20} color="#4285F4" />
             <Text style={{
@@ -212,68 +467,82 @@ function SigninScreen() {
             }}>
               {title}
             </Text>
-          </View>
         </View>
       )}
     </TouchableOpacity>
+      </Animated.View>
   );
+  };
 
-  const ModernInput = ({ 
+  // Memoized basic input component
+  const BasicInput = React.memo(({ 
     placeholder, 
     value, 
     onChangeText, 
-    secureTextEntry = false,
     keyboardType = 'default',
     icon,
     editable = true 
-  }) => (
-    <View style={{
-      backgroundColor: colors.inputBg,
-      borderRadius: 16,
-      borderWidth: 2,
-      borderColor: colors.inputBorder,
-      flexDirection: 'row',
-      alignItems: 'center',
-      paddingHorizontal: 16,
-      paddingVertical: 4,
-      marginVertical: 8,
-      height: 56,
-    }}>
-      {icon && (
-        <View style={{ marginRight: 12 }}>
-          {icon}
-        </View>
-      )}
-      <TextInput
-        placeholder={placeholder}
-        placeholderTextColor={colors.textMuted}
-        value={value}
-        onChangeText={onChangeText}
-        secureTextEntry={secureTextEntry && !showPassword}
-        keyboardType={keyboardType}
-        editable={editable}
-        autoCapitalize="none"
-        style={{
-          flex: 1,
-          color: colors.text,
-          fontSize: 16,
-          fontWeight: '400',
-        }}
-      />
-      {secureTextEntry && (
-        <TouchableOpacity
-          onPress={() => setShowPassword(!showPassword)}
-          style={{ padding: 4 }}
-        >
-          <Feather 
-            name={showPassword ? "eye-off" : "eye"} 
-            size={20} 
-            color={colors.textMuted} 
-          />
-        </TouchableOpacity>
-      )}
-    </View>
-  );
+  }) => {
+    return (
+      <View style={{
+        backgroundColor: colors.inputBg,
+        borderRadius: 16,
+        borderWidth: 2,
+        borderColor: colors.inputBorder,
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingHorizontal: 16,
+        paddingVertical: 4,
+        marginVertical: 8,
+        height: 56,
+      }}>
+        {icon && (
+          <View style={{ marginRight: 12 }}>
+            {icon}
+          </View>
+        )}
+        <TextInput
+          placeholder={placeholder}
+          placeholderTextColor={colors.textMuted}
+          value={value}
+          onChangeText={onChangeText}
+          keyboardType={keyboardType}
+          editable={editable}
+          autoCapitalize="none"
+          autoComplete="off"
+          autoCorrect={false}
+          returnKeyType="done"
+          blurOnSubmit={false}
+          style={{
+            flex: 1,
+            color: colors.text,
+            fontSize: 16,
+            fontWeight: '400',
+          }}
+        />
+      </View>
+    );
+  });
+
+  // Add display names for debugging
+  BasicInput.displayName = 'BasicInput';
+
+  const imageAnimatedStyle = useAnimatedStyle(() => {
+    return {
+      opacity: imageOpacity.value,
+      transform: [{ translateY: slideY.value }],
+    };
+  });
+
+  // Memoized handlers to prevent re-creation
+  const handleEmailChange = useCallback((text) => {
+    setEmail(text);
+    setIsGoogleEmail(false); // Reset Google email flag when manually typing
+  }, []);
+  
+  const handlePasswordChange = useCallback((text) => setPassword(text), []);
+
+  console.log('Rendering SigninScreen');
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.background }}>
@@ -282,21 +551,28 @@ function SigninScreen() {
       <KeyboardAvoidingView 
         behavior={Platform.OS === "ios" ? "padding" : "height"}
         style={{ flex: 1 }}
+        keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 20}
       >
         <ScrollView 
           contentContainerStyle={{ flexGrow: 1 }}
           showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+          bounces={false}
         >
-          <Animated.View 
-            style={{
-              flex: 1,
-              paddingHorizontal: 24,
-              paddingTop: 80,
-              justifyContent: 'center',
-              transform: [{ translateY: slideAnim }],
-              opacity: fadeAnim,
-            }}
-          >
+          <View style={{
+            flex: 1,
+            paddingHorizontal: 24,
+            paddingTop: 60,
+            justifyContent: 'center',
+          }}>
+            {/* Top Image */}
+            <Animated.View style={[{ alignItems: 'center', marginBottom: 32 }, imageAnimatedStyle]}>
+              <Image
+                source={require('../../assets/images/campus-connect-logo.png')}
+                style={{ width: 80, height: 80, borderRadius: 20 }}
+              />
+            </Animated.View>
+
             {/* Header */}
             <View style={{ alignItems: 'center', marginBottom: 48 }}>
               <Text style={{
@@ -306,7 +582,7 @@ function SigninScreen() {
                 marginBottom: 8,
                 textAlign: 'center',
               }}>
-                Welcome back!
+                Welcome back
               </Text>
               <Text style={{
                 fontSize: 16,
@@ -321,61 +597,74 @@ function SigninScreen() {
             {/* Content */}
             <View style={{ marginBottom: 32 }}>
               {/* Google Sign In */}
-              <GradientButton
-                title={loading ? 'Signing in...' : 'Sign In with Google'}
+              <AnimatedButton
+                title={loading ? 'Signing in...' : 'Continue with Google'}
                 onPress={handleGoogleSignIn}
                 disabled={loading}
                 variant="google"
               />
 
-              {/* Divider */}
+              {/* Or Divider */}
               <View style={{
                 flexDirection: 'row',
                 alignItems: 'center',
-                marginVertical: 32,
+                marginVertical: 24,
               }}>
                 <View style={{
                   flex: 1,
-                  height: 2,
+                  height: 1,
                   backgroundColor: colors.inputBorder,
                 }} />
                 <Text style={{
-                  marginHorizontal: 16,
-                  color: colors.textSecondary,
+                  color: colors.textMuted,
+                  paddingHorizontal: 16,
                   fontSize: 14,
-                  fontWeight: '600',
                 }}>
-                  OR
+                  Or sign in with email
                 </Text>
                 <View style={{
                   flex: 1,
-                  height: 2,
+                  height: 1,
                   backgroundColor: colors.inputBorder,
                 }} />
               </View>
 
-              {/* Form */}
-              <View style={{ marginBottom: 24 }}>
-                <ModernInput
-                  placeholder="Email"
-                  value={email}
-                  onChangeText={setEmail}
-                  keyboardType="email-address"
-                  icon={<MaterialIcons name="email" size={20} color={colors.textSecondary} />}
-                />
+              {/* Email Input */}
+              <BasicInput
+                placeholder="Email"
+                value={email}
+                onChangeText={handleEmailChange}
+                keyboardType="email-address"
+                editable={!isGoogleEmail}
+                icon={<MaterialIcons name="email" size={20} color={colors.textSecondary} />}
+              />
 
-                <ModernInput
-                  placeholder="Password"
-                  value={password}
-                  onChangeText={setPassword}
-                  secureTextEntry={true}
-                  icon={<MaterialIcons name="lock-outline" size={20} color={colors.textSecondary} />}
-                />
-              </View>
+              {/* Password Input */}
+              <StablePasswordInput
+                placeholder="Password"
+                value={password}
+                onChangeText={handlePasswordChange}
+                icon={<MaterialIcons name="lock-outline" size={20} color={colors.textSecondary} />}
+              />
 
-              {/* Login Button */}
-              <GradientButton
-                title={loading ? 'Signing in...' : 'Log In'}
+              {/* Forgot Password Link */}
+              <TouchableOpacity 
+                onPress={handleForgotPassword}
+                disabled={resetLoading}
+                style={{ alignSelf: 'flex-end', marginTop: 8, marginBottom: 16 }}
+              >
+                <Text style={{
+                  color: resetLoading ? colors.textMuted : colors.accent,
+                  fontSize: 14,
+                  fontWeight: '600',
+                }}>
+                  {resetLoading ? 'Sending...' : 'Forgot Password?'}
+                </Text>
+              </TouchableOpacity>
+
+              {/* Sign In Button */}
+              <AnimatedButton
+                title={loading ? 'Signing In...' : 'Sign In'}
                 onPress={handleLogin}
                 disabled={loading}
               />
@@ -404,32 +693,17 @@ function SigninScreen() {
                 </TouchableOpacity>
               </View>
             </View>
-          </Animated.View>
+          </View>
         </ScrollView>
       </KeyboardAvoidingView>
 
-      {/* Alert Display */}
-      {alert && (
-        <Animated.View style={{
-          position: 'absolute',
-          top: 100,
-          left: 24,
-          right: 24,
-          backgroundColor: alert.type === 'success' ? '#10B981' : '#EF4444',
-          borderRadius: 12,
-          padding: 16,
-          zIndex: 1000,
-        }}>
-          <Text style={{
-            color: colors.text,
-            fontSize: 14,
-            fontWeight: '600',
-            textAlign: 'center',
-          }}>
-            {alert.message}
-          </Text>
-        </Animated.View>
-      )}
+      {/* Error Modal */}
+      <ErrorModal
+        visible={errorModal.visible}
+        message={errorModal.message}
+        type={errorModal.type}
+        onClose={hideError}
+      />
     </View>
   );
 }

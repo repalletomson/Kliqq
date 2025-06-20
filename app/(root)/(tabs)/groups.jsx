@@ -1,29 +1,31 @@
 import React, { useState, useEffect } from 'react';
 import { 
   View, 
-  Text, 
-  ScrollView, 
   TouchableOpacity, 
   Image,
   Modal,
   SafeAreaView,
   Dimensions,
-  ActivityIndicator
+  ActivityIndicator,
+  Alert,
+  ScrollView
 } from 'react-native';
 import { useNavigation, router } from 'expo-router';
-import { getCurrentUser, joinGroup } from '../../../lib/firebase';
+import { useAuth } from '../../../context/authContext';
+import { supabase } from '../../../config/supabaseConfig';
+import { AppText } from '../../_layout';
 
-// Consistent Color Palette - Black Theme
+// Consistent Color Palette - WhatsApp-like Black Theme
 const COLORS = {
   background: '#000000',
-  cardBg: '#000000',
+  cardBg: '#111111',
   text: '#FFFFFF',
-  textSecondary: '#E5E5E5',
-  textMuted: '#A1A1AA',
-  inputBg: '#1A1A1A',
+  textSecondary: '#A1A1AA',
   accent: '#8B5CF6',
-  success: '#10B981',
-  shadow: 'rgba(139, 92, 246, 0.15)',
+  border: '#27272A',
+  shadow: 'rgba(0, 0, 0, 0.3)',
+  headerBg: '#111111',
+  inputBg: '#1A1A1A',
 };
 
 const DEFAULT_GROUPS = [
@@ -39,7 +41,7 @@ const { width } = Dimensions.get('window');
 const SPACING = 10;
 
 export default function GroupList() {
-  const [currentUser, setCurrentUser] = useState(null);
+  const { user: currentUser } = useAuth();
   const [selectedGroup, setSelectedGroup] = useState(null);
   const [userGroups, setUserGroups] = useState([]);
   const [joinModalVisible, setJoinModalVisible] = useState(false);
@@ -47,26 +49,44 @@ export default function GroupList() {
   const navigation = useNavigation();
 
   useEffect(() => {
-    const fetchCurrentUser = async () => {
-      try {
-        setLoading(true);
-        const user = await getCurrentUser();
-        setCurrentUser(user);
-        
-        // Convert user's groups array to a format matching the DEFAULT_GROUPS
-        if (user && user.groups && user.groups.length > 0) {
-          // Store the user's group IDs for easy checking
-          setUserGroups(user.groups);
-        }
-      } catch (error) {
-        console.error("Error fetching user data:", error);
-      } finally {
+    if (currentUser?.uid) {
+      fetchUserGroups();
+    }
+  }, [currentUser?.uid]);
+
+  const fetchUserGroups = async () => {
+    try {
+      setLoading(true);
+      console.log('🔍 Fetching user groups from Supabase...');
+      
+      if (!currentUser?.uid) {
+        console.log('❌ No current user found');
         setLoading(false);
+        return;
       }
-    };
-    
-    fetchCurrentUser();
-  }, []);
+
+      // Fetch user's groups from Supabase
+      const { data: userData, error } = await supabase
+        .from('users')
+        .select('groups')
+        .eq('id', currentUser.uid)
+        .single();
+
+      if (error) {
+        console.error('❌ Error fetching user groups:', error);
+        // If user doesn't exist in Supabase, initialize empty groups
+        setUserGroups([]);
+      } else {
+        console.log('✅ User groups fetched from Supabase:', userData?.groups);
+        setUserGroups(userData?.groups || []);
+      }
+    } catch (error) {
+      console.error('❌ Error in fetchUserGroups:', error);
+      setUserGroups([]);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const isUserInGroup = (groupId) => {
     return userGroups.includes(groupId);
@@ -76,29 +96,94 @@ export default function GroupList() {
     const isMember = isUserInGroup(group.id);
     
     if (isMember) {
-      navigation.navigate('groupRoom', { group });
+      router.push({
+        pathname: '/(root)/groupRoom',
+        params: { 
+          groupId: group.id,
+          groupName: group.name,
+          groupImage: JSON.stringify(group.image)
+        }
+      });
     } else {
       setSelectedGroup(group);
       setJoinModalVisible(true);
     }
   };
 
-  const handleJoinGroup = async () => {
-    if (currentUser && selectedGroup) {
-      try {
-        setLoading(true);
-        await joinGroup(currentUser.uid, selectedGroup.id);
-        
-        // Update local state to include the new group
-        setUserGroups([...userGroups, selectedGroup.id]);
-        
-        setJoinModalVisible(false);
-        navigation.navigate('groupRoom', { group: selectedGroup });
-      } catch (error) {
-        console.error("Error joining group:", error);
-      } finally {
-        setLoading(false);
+  const updateUserGroupsInSupabase = async (groupId) => {
+    try {
+      console.log('🔄 Updating user groups in Supabase...');
+      
+      const { error } = await supabase
+        .from('users')
+        .update({ 
+          groups: [...userGroups, groupId]
+        })
+        .eq('id', currentUser.uid);
+
+      if (error) {
+        throw error;
       }
+
+      console.log('✅ User groups updated in Supabase');
+      return true;
+    } catch (error) {
+      console.error('❌ Error updating user groups in Supabase:', error);
+      return false;
+    }
+  };
+
+  const handleJoinGroup = async () => {
+    if (!currentUser?.uid || !selectedGroup) {
+      Alert.alert('Error', 'Unable to join group. Please try again.');
+      return;
+    }
+
+    try {
+      setLoading(true);
+      console.log(`🚀 Joining group: ${selectedGroup.name}`);
+
+      // 1. Update user's groups in Supabase
+      const supabaseSuccess = await updateUserGroupsInSupabase(selectedGroup.id);
+      
+      if (!supabaseSuccess) {
+        Alert.alert('Error', 'Failed to update your profile. Please try again.');
+        setLoading(false);
+        return;
+      }
+
+      // 2. Update Firebase group membership for chat functionality
+      try {
+        const { joinGroup } = await import('../../../lib/firebase');
+        await joinGroup(currentUser.uid, selectedGroup.id);
+        console.log('✅ Firebase group membership updated');
+      } catch (firebaseError) {
+        console.warn('⚠️ Firebase group update failed (chat may not work):', firebaseError);
+        // Continue anyway as Supabase update succeeded
+      }
+
+      // 3. Update local state
+      setUserGroups([...userGroups, selectedGroup.id]);
+      
+      setJoinModalVisible(false);
+      
+      // 4. Navigate to group room
+      router.push({
+        pathname: '/(root)/groupRoom',
+        params: { 
+          groupId: selectedGroup.id,
+          groupName: selectedGroup.name,
+          groupImage: JSON.stringify(selectedGroup.image)
+        }
+      });
+
+      console.log('✅ Successfully joined group');
+      
+    } catch (error) {
+      console.error('❌ Error joining group:', error);
+      Alert.alert('Error', 'Failed to join group. Please try again.');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -134,14 +219,14 @@ export default function GroupList() {
           padding: 16
         }}
       >
-        <Text style={{ 
+        <AppText style={{ 
           color: COLORS.text, 
           fontSize: 20, 
           fontWeight: '800',
           marginBottom: 4,
         }}>
           {item.name}
-        </Text>
+        </AppText>
         {isUserInGroup(item.id) && (
           <View style={{
             backgroundColor: COLORS.accent,
@@ -150,13 +235,13 @@ export default function GroupList() {
             borderRadius: 12,
             alignSelf: 'flex-start',
           }}>
-            <Text style={{ 
+            <AppText style={{ 
               color: '#FFFFFF', 
               fontSize: 12,
               fontWeight: '600'
             }}>
               Member
-            </Text>
+            </AppText>
           </View>
         )}
       </View>
@@ -212,7 +297,7 @@ export default function GroupList() {
           borderWidth: 1,
           borderColor: 'rgba(255,255,255,0.1)',
         }}>
-          <Text style={{ 
+          <AppText style={{ 
             fontSize: 22, 
             fontWeight: '800', 
             color: COLORS.text, 
@@ -220,8 +305,8 @@ export default function GroupList() {
             marginBottom: 8,
           }}>
             Join {selectedGroup?.name} Group
-          </Text>
-          <Text style={{ 
+          </AppText>
+          <AppText style={{ 
             color: COLORS.textSecondary, 
             textAlign: 'center', 
             marginBottom: 24,
@@ -229,7 +314,7 @@ export default function GroupList() {
             lineHeight: 22,
           }}>
             Disclaimer: This group is for {selectedGroup?.name.toLowerCase()} discussions only. Keep conversations relevant and respectful.
-          </Text>
+          </AppText>
           <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
             <TouchableOpacity 
               onPress={() => setJoinModalVisible(false)} 
@@ -242,13 +327,13 @@ export default function GroupList() {
                 alignItems: 'center',
               }}
             >
-              <Text style={{ 
+              <AppText style={{ 
                 color: COLORS.text, 
                 fontWeight: '600',
                 fontSize: 16,
               }}>
                 Cancel
-              </Text>
+              </AppText>
             </TouchableOpacity>
             <TouchableOpacity 
               onPress={handleJoinGroup} 
@@ -261,13 +346,13 @@ export default function GroupList() {
                 alignItems: 'center',
               }}
             >
-              <Text style={{ 
+              <AppText style={{ 
                 color: '#FFFFFF', 
                 fontWeight: '700',
                 fontSize: 16,
               }}>
                 Join Group
-              </Text>
+              </AppText>
             </TouchableOpacity>
           </View>
         </View>
@@ -284,14 +369,14 @@ export default function GroupList() {
         alignItems: 'center' 
       }}>
         <ActivityIndicator size="large" color={COLORS.accent} />
-        <Text style={{ 
+        <AppText style={{ 
           color: COLORS.textSecondary, 
           marginTop: 16,
           fontSize: 16,
           fontWeight: '500'
         }}>
           Loading groups...
-        </Text>
+        </AppText>
       </SafeAreaView>
     );
   }
@@ -309,13 +394,13 @@ export default function GroupList() {
         shadowRadius: 10,
         elevation: 5,
       }}>
-        <Text style={{ 
+        <AppText style={{ 
           fontSize: 24, 
           fontWeight: '800', 
           color: COLORS.text 
         }}>
           Groups
-        </Text>
+        </AppText>
       </View>
 
       {/* Scrollable Content */}

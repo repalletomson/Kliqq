@@ -2,41 +2,55 @@ import React, { useState, useEffect, useRef } from 'react';
 import { 
   View, ScrollView, SafeAreaView, Text, TouchableOpacity, 
   ActivityIndicator, KeyboardAvoidingView, Platform, Animated, StatusBar,
-  Alert, Modal
+  Alert, Modal, Dimensions, TextInput, Image
 } from 'react-native';
 import { useLocalSearchParams, router } from 'expo-router';
 import { 
   collection, query, orderBy, onSnapshot, doc, limit, 
   getDocs, updateDoc, serverTimestamp, arrayUnion, arrayRemove,
-  where
+  where, addDoc
 } from 'firebase/firestore';
-import { db, auth } from '../../config/firebaseConfig';
+import { db } from '../../config/firebaseConfig';
+import { supabase } from '../../config/supabaseConfig';
 import { MaterialIcons, Ionicons } from '@expo/vector-icons';
 import { MessageItem } from '../../components/MessageItem';
-import { MessageInput } from '../../components/messageInput';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
+import { 
+  PanGestureHandler, 
+  GestureHandlerRootView,
+  State
+} from 'react-native-gesture-handler';
+import { AES, enc } from 'react-native-crypto-js';
+import { useAuth } from '../../context/authContext';
 
 dayjs.extend(relativeTime);
 
 const MESSAGES_PER_PAGE = 20;
+const { width } = Dimensions.get('window');
+const SECRET_KEY = "kliq-secure-messaging-2024";
 
-// Consistent Color Palette - Black Theme with Purple Accents
+// Updated Color Palette - WhatsApp-like Black Theme
 const COLORS = {
   background: '#000000',
-  cardBg: '#000000',
+  cardBg: '#111111',
   text: '#FFFFFF',
-  textSecondary: '#E5E5E5',
-  textMuted: '#A1A1AA',
+  textSecondary: '#A1A1AA',
+  textMuted: '#6B7280',
   inputBg: '#1A1A1A',
   accent: '#8B5CF6',
-  messageOwn: '#8B5CF6',      // Light purple for own messages
-  messageOther: '#1A1A1A',    // Dark gray for other messages
+  messageOwn: '#232136',
+  messageOther: '#111111',
   success: '#10B981',
-  danger: '#EF4444',
-  shadow: 'rgba(139, 92, 246, 0.15)',
-  border: 'rgba(255, 255, 255, 0.1)',
+  danger: '#E53E3E',
+  shadow: 'rgba(0, 0, 0, 0.3)',
+  border: '#27272A',
+  replyBorder: '#8B5CF6',
+  replyBg: 'rgba(139, 92, 246, 0.08)',
+  headerBg: '#111111',
 };
+
+const DEFAULT_PROFILE = 'https://assets.grok.com/users/8c354dfe-946c-4a32-b2de-5cb3a8ab9776/generated/h4epnwdFODX6hW0L/image.jpg';
 
 const BlockUserModal = ({ visible, onClose, onBlock, recipientName }) => {
   return (
@@ -49,7 +63,7 @@ const BlockUserModal = ({ visible, onClose, onBlock, recipientName }) => {
       }}>
         <View style={{
           backgroundColor: COLORS.cardBg,
-          borderRadius: 20,
+          borderRadius: 16,
           padding: 24,
           width: '85%',
           maxWidth: 320,
@@ -64,7 +78,7 @@ const BlockUserModal = ({ visible, onClose, onBlock, recipientName }) => {
             <MaterialIcons name="block" size={24} color={COLORS.danger} />
             <Text style={{
               fontSize: 18,
-              fontWeight: '700',
+              fontWeight: '600',
               color: COLORS.text,
               marginLeft: 12,
             }}>
@@ -92,13 +106,13 @@ const BlockUserModal = ({ visible, onClose, onBlock, recipientName }) => {
                 paddingVertical: 12,
                 paddingHorizontal: 20,
                 backgroundColor: COLORS.inputBg,
-                borderRadius: 12,
+                borderRadius: 8,
               }}
             >
               <Text style={{
                 fontSize: 16,
                 color: COLORS.text,
-                fontWeight: '600',
+                fontWeight: '500',
               }}>
                 Cancel
               </Text>
@@ -110,13 +124,13 @@ const BlockUserModal = ({ visible, onClose, onBlock, recipientName }) => {
                 paddingVertical: 12,
                 paddingHorizontal: 20,
                 backgroundColor: COLORS.danger,
-                borderRadius: 12,
+                borderRadius: 8,
               }}
             >
               <Text style={{
                 fontSize: 16,
                 color: '#FFFFFF',
-                fontWeight: '700',
+                fontWeight: '600',
               }}>
                 Block
               </Text>
@@ -128,6 +142,12 @@ const BlockUserModal = ({ visible, onClose, onBlock, recipientName }) => {
   );
 };
 
+// Enhanced message truncation
+const truncateMessage = (text, maxLength = 35) => {
+  if (!text || text.length <= maxLength) return text;
+  return text.substring(0, maxLength) + '...';
+};
+
 export default function ChatRoom() {
   const { chatId, recipientId } = useLocalSearchParams();
   const [messages, setMessages] = useState([]);
@@ -137,20 +157,104 @@ export default function ChatRoom() {
   const [recipient, setRecipient] = useState(null);
   const [replyingTo, setReplyingTo] = useState(null);
   const [isTyping, setIsTyping] = useState(false);
-  const [disappearingMessages, setDisappearingMessages] = useState(false);
   const [showBlockModal, setShowBlockModal] = useState(false);
+  const [messageText, setMessageText] = useState('');
   const scrollViewRef = useRef(null);
   const lastMessageRef = useRef(null);
   const unsubscribeRef = useRef({});
+  const { user } = useAuth();
 
-  const currentUserId = auth.currentUser?.uid;
+  const currentUserId = user?.uid;
+
+  // Update last seen in Supabase
+  const updateLastSeen = async () => {
+    if (!currentUserId) return;
+    
+    try {
+      const { error } = await supabase
+        .from('users')
+        .update({ 
+          last_seen: new Date().toISOString(),
+          is_online: true 
+        })
+        .eq('id', currentUserId);
+      
+      if (error) {
+        console.error('Error updating last seen:', error);
+      }
+    } catch (error) {
+      console.error('Error updating last seen:', error);
+    }
+  };
+
+  // Decrypt message function
+  const decryptMessage = (encryptedText) => {
+    try {
+      if (!encryptedText) return '';
+      const decrypted = AES.decrypt(encryptedText, SECRET_KEY).toString(enc.Utf8);
+      return decrypted || encryptedText;
+    } catch (error) {
+      console.error('Decryption error:', error);
+      return encryptedText;
+    }
+  };
+
+  // Fetch user details from Supabase
+  const fetchUserFromSupabase = async (userId) => {
+    try {
+      const { data, error } = await supabase
+        .from('users')
+        .select(`
+          id,
+          username,
+          full_name,
+          profile_image,
+          college,
+          branch,
+          passout_year,
+          bio,
+          last_seen,
+          is_online
+        `)
+        .eq('id', userId)
+        .single();
+
+      if (error) {
+        console.error('Error fetching user from Supabase:', error);
+        return null;
+      }
+
+      return {
+        id: data.id,
+        uid: data.id,
+        fullName: data.full_name,
+        full_name: data.full_name,
+        displayName: data.full_name,
+        username: data.username,
+        profileImage: data.profile_image,
+        profile_image: data.profile_image,
+        photoURL: data.profile_image,
+        college: data.college,
+        branch: data.branch,
+        passout_year: data.passout_year,
+        bio: data.bio,
+        about: data.bio,
+        lastSeen: data.last_seen ? dayjs(data.last_seen).fromNow() : 'Unknown',
+        isOnline: data.is_online || false
+      };
+    } catch (error) {
+      console.error('Error fetching user from Supabase:', error);
+      return null;
+    }
+  };
 
   useEffect(() => {
-    if (!chatId || !recipientId) return;
+    if (!chatId || !recipientId || !currentUserId) return;
 
     setLoading(true);
     
-    // Load messages
+    updateLastSeen();
+    
     const messagesQuery = query(
       collection(db, 'chats', chatId, 'messages'),
       orderBy('timestamp', 'desc'),
@@ -158,38 +262,63 @@ export default function ChatRoom() {
     );
 
     unsubscribeRef.current.messages = onSnapshot(messagesQuery, (snapshot) => {
-      const fetchedMessages = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      })).reverse();
+      const fetchedMessages = snapshot.docs.map(doc => {
+        const data = doc.data();
+        return {
+          id: doc.id,
+          ...data,
+          text: data.text ? decryptMessage(data.text) : data.content ? decryptMessage(data.content) : '',
+          replyTo: data.replyTo ? {
+            ...data.replyTo,
+            text: data.replyTo.text ? decryptMessage(data.replyTo.text) : ''
+          } : null
+        };
+      }).reverse();
       setMessages(fetchedMessages);
       setHasMore(snapshot.docs.length === MESSAGES_PER_PAGE);
       setLoading(false);
     });
 
-    // Load recipient data
-    unsubscribeRef.current.recipient = onSnapshot(doc(db, 'users', recipientId), (snapshot) => {
-      if (snapshot.exists()) {
-        const data = snapshot.data();
-        setRecipient({
-          ...data,
-          id: recipientId,
-          lastSeen: data.lastSeen ? dayjs(data.lastSeen.toDate()).fromNow() : 'Unknown'
-        });
+    const loadRecipientData = async () => {
+      try {
+        const recipientData = await fetchUserFromSupabase(recipientId);
+        if (recipientData) {
+          setRecipient(recipientData);
+        }
+      } catch (error) {
+        console.error('Error loading recipient data:', error);
       }
-    });
+    };
 
-    // Listen for typing indicators and disappearing messages
+    loadRecipientData();
+
     unsubscribeRef.current.chat = onSnapshot(doc(db, 'chats', chatId), (snapshot) => {
       const data = snapshot.data();
       setIsTyping(data?.typingUsers?.includes(recipientId) || false);
-      setDisappearingMessages(data?.disappearingMessages || false);
     });
 
     return () => Object.values(unsubscribeRef.current).forEach(unsub => unsub?.());
-  }, [chatId, recipientId]);
+  }, [chatId, recipientId, currentUserId]);
 
-  // Mark messages as read
+  useEffect(() => {
+    updateLastSeen();
+    
+    return () => {
+      if (currentUserId) {
+        supabase
+          .from('users')
+          .update({ 
+            last_seen: new Date().toISOString(),
+            is_online: false 
+          })
+          .eq('id', currentUserId)
+          .then(({ error }) => {
+            if (error) console.error('Error setting offline status:', error);
+          });
+      }
+    };
+  }, [currentUserId]);
+
   useEffect(() => {
     if (!chatId || !currentUserId) return;
     
@@ -209,30 +338,12 @@ export default function ChatRoom() {
     markAsRead();
   }, [chatId, currentUserId]);
 
-  const loadMoreMessages = async () => {
-    if (!hasMore || !lastMessageRef.current) return;
-    
-    const moreQuery = query(
-      collection(db, 'chats', chatId, 'messages'),
-      orderBy('timestamp', 'desc'),
-      startAfter(lastMessageRef.current),
-      limit(MESSAGES_PER_PAGE)
-    );
-    
-    const snapshot = await getDocs(moreQuery);
-    const newMessages = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })).reverse();
-    setMessages(prev => [...newMessages, ...prev]);
-    lastMessageRef.current = snapshot.docs[snapshot.docs.length - 1];
-    setHasMore(snapshot.docs.length === MESSAGES_PER_PAGE);
-  };
-
   const scrollToBottom = () => {
     scrollViewRef.current?.scrollToEnd({ animated: true });
   };
 
   const handleBlock = async () => {
     try {
-      // Add actual blocking logic here based on your backend
       setIsBlocked(true);
       setShowBlockModal(false);
       Alert.alert("User Blocked", `You have blocked ${recipient?.fullName || 'this user'} successfully.`);
@@ -242,15 +353,74 @@ export default function ChatRoom() {
     }
   };
 
+  const encryptMessage = (text) => {
+    try {
+      if (!text) return '';
+      return AES.encrypt(text, SECRET_KEY).toString();
+    } catch (error) {
+      console.error('Encryption error:', error);
+      return text;
+    }
+  };
+
+  const handleSendMessage = async () => {
+    if (!messageText.trim() || !currentUserId) return;
+    
+    try {
+      const messageData = {
+        text: encryptMessage(messageText),
+        sender: currentUserId,
+        name: user.displayName || user.full_name || 'User',
+        userAvatar: user.photoURL || user.profile_image || null,
+        timestamp: serverTimestamp(),
+        readBy: { [currentUserId]: true },
+        replyTo: replyingTo ? {
+          id: replyingTo.id,
+          sender: replyingTo.sender || replyingTo.senderId,
+          name: replyingTo.name || replyingTo.senderName,
+          text: encryptMessage(replyingTo.text)
+        } : null
+      };
+
+      setMessageText('');
+      setReplyingTo(null);
+
+      await addDoc(collection(db, 'chats', chatId, 'messages'), messageData);
+      
+      await updateDoc(doc(db, 'chats', chatId), {
+        lastMessage: encryptMessage(messageText),
+        lastMessageTime: serverTimestamp(),
+        lastSender: currentUserId
+      });
+
+      setTimeout(() => {
+        scrollToBottom();
+      }, 100);
+    } catch (error) {
+      console.error('Error sending message:', error);
+      Alert.alert('Error', 'Failed to send message. Please try again.');
+    }
+  };
+
   const formatDateHeader = (timestamp) => {
     if (!timestamp) return '';
     const date = timestamp.toDate();
-    return dayjs(date).format('MMM D, YYYY');
+    const today = new Date();
+    const yesterday = new Date(today);
+    yesterday.setDate(yesterday.getDate() - 1);
+    
+    if (date.toDateString() === today.toDateString()) {
+      return 'Today';
+    } else if (date.toDateString() === yesterday.toDateString()) {
+      return 'Yesterday';
+    } else {
+      return dayjs(date).format('dddd'); // Monday, Tuesday, etc.
+    }
   };
 
   const formatMessageTime = (timestamp) => {
     if (!timestamp) return '';
-    const date = new Date(timestamp);
+    const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
     return date.toLocaleTimeString([], { 
       hour: 'numeric', 
       minute: '2-digit', 
@@ -258,156 +428,102 @@ export default function ChatRoom() {
     });
   };
 
-  // Enhanced Message Component
+  // Enhanced Message Bubble Component to match the image design
   const MessageBubble = React.memo(({ message }) => {
-    const isCurrentUser = message.senderId === currentUserId;
+    const isCurrentUser = message.senderId === currentUserId || message.sender === currentUserId;
 
     return (
       <View style={{
         alignSelf: isCurrentUser ? 'flex-end' : 'flex-start',
-        marginBottom: 16,
-        maxWidth: '80%',
+        marginBottom: 8,
+        maxWidth: width * 0.75,
         marginHorizontal: 16,
       }}>
-        {/* Reply Section */}
-        {message.replyTo && (
-          <View style={{
-            backgroundColor: COLORS.inputBg,
-            borderRadius: 12,
-            paddingHorizontal: 12,
-            paddingVertical: 8,
-            marginBottom: 4,
-            borderLeftWidth: 3,
-            borderLeftColor: COLORS.accent,
-          }}>
-            <Text style={{
-              color: COLORS.textMuted,
-              fontSize: 12,
-              fontWeight: '600',
-            }}>
-              Replying to {message.replyTo.senderName}
-            </Text>
-            <Text style={{
-              color: COLORS.textSecondary,
-              fontSize: 12,
-              marginTop: 2,
-            }}>
-              {message.replyTo.text && message.replyTo.text.length > 30 
-                ? `${message.replyTo.text.substring(0, 30)}...` 
-                : message.replyTo.text}
-            </Text>
-          </View>
-        )}
-
-        {!isCurrentUser && (
+        <View style={{
+          backgroundColor: isCurrentUser ? COLORS.messageOwn : COLORS.messageOther,
+          paddingHorizontal: 12,
+          paddingVertical: 8,
+          borderRadius: 18,
+          position: 'relative',
+        }}>
           <Text style={{
-            color: COLORS.textMuted,
-            fontSize: 12,
-            marginBottom: 4,
-            fontWeight: '600',
-            marginLeft: 4,
+            color: '#FFFFFF',
+            fontSize: 16,
+            lineHeight: 20,
+            fontFamily: isCurrentUser ? 'GeneralSans-Medium' : 'GeneralSans-Regular',
           }}>
-            {message.senderName || recipient?.fullName || 'User'}
+            {message.text || message.content}
           </Text>
-        )}
-        
-        <View style={{ flexDirection: 'row', alignItems: 'flex-end' }}>
-          <TouchableOpacity 
-            onLongPress={() => setReplyingTo(message)}
-            style={{
-              backgroundColor: isCurrentUser ? COLORS.messageOwn : COLORS.messageOther,
-              borderRadius: 20,
-              paddingHorizontal: 16,
-              paddingVertical: 12,
-              shadowColor: COLORS.shadow,
-              shadowOffset: { width: 0, height: 2 },
-              shadowOpacity: 0.3,
-              shadowRadius: 4,
-              elevation: 2,
-            }}
-            activeOpacity={0.7}
-          >
-            <Text style={{
-              color: isCurrentUser ? '#FFFFFF' : COLORS.text,
-              fontSize: 16,
-              lineHeight: 20,
-            }}>
-              {message.text || message.content}
-            </Text>
-            <Text style={{
-              color: isCurrentUser ? 'rgba(255,255,255,0.8)' : COLORS.textMuted,
-              fontSize: 11,
-              marginTop: 4,
-              textAlign: 'right',
-            }}>
-              {formatMessageTime(message.timestamp)}
-            </Text>
-          </TouchableOpacity>
+          
+          <Text style={{
+            color: isCurrentUser ? 'rgba(255,255,255,0.7)' : 'rgba(255,255,255,0.6)',
+            fontSize: 12,
+            marginTop: 4,
+            alignSelf: 'flex-end',
+            fontFamily: 'GeneralSans-Regular',
+          }}>
+            {formatMessageTime(message.timestamp)}
+          </Text>
         </View>
       </View>
     );
   });
 
-  // Header component with purple background
+  // Header component matching the image design
   const ChatHeader = () => (
     <View style={{
-      position: 'absolute',
-      top: 0,
-      left: 0,
-      right: 0,
-      backgroundColor: COLORS.accent,
-      paddingTop: 44,
+      backgroundColor: COLORS.headerBg,
+      paddingTop: 20,
       paddingBottom: 16,
       paddingHorizontal: 20,
       flexDirection: 'row',
       alignItems: 'center',
-      justifyContent: 'space-between',
-      zIndex: 100,
-      shadowColor: COLORS.shadow,
-      shadowOffset: { width: 0, height: 2 },
-      shadowOpacity: 0.8,
-      shadowRadius: 10,
-      elevation: 5,
+      borderBottomWidth: 0.5,
+      borderBottomColor: COLORS.border,
     }}>
-      <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
-        <TouchableOpacity 
-          onPress={() => router.back()}
-          style={{
-            marginRight: 16,
-            padding: 4,
-          }}
-        >
-          <Ionicons name="arrow-back" size={24} color="#FFFFFF" />
-        </TouchableOpacity>
-        
-        <View style={{ flex: 1 }}>
-          <Text style={{
-            fontSize: 20,
-            fontWeight: '800',
-            color: '#FFFFFF',
-          }}>
-            {recipient?.fullName || 'Chat'}
-          </Text>
-          <Text style={{
-            fontSize: 13,
-            color: 'rgba(255,255,255,0.8)',
-            marginTop: 2,
-            fontWeight: '500',
-          }}>
-            {isTyping ? 'typing...' : `Last seen ${recipient?.lastSeen || 'unknown'}`}
-          </Text>
-        </View>
+      <TouchableOpacity 
+        onPress={() => router.back()}
+        style={{ marginRight: 16 }}
+      >
+        <Ionicons name="arrow-back" size={24} color={COLORS.text} />
+      </TouchableOpacity>
+      
+      <Image
+        source={{ 
+          uri: recipient?.profileImage || DEFAULT_PROFILE 
+        }}
+        style={{
+          width: 40,
+          height: 40,
+          borderRadius: 20,
+          marginRight: 12,
+        }}
+      />
+      
+      <View style={{ flex: 1 }}>
+        <Text style={{
+          fontSize: 17,
+          fontWeight: '600',
+          color: COLORS.text,
+          fontFamily: 'GeneralSans-Medium',
+        }}>
+          {recipient?.fullName || 'Chat'}
+        </Text>
+        <Text style={{
+          fontSize: 13,
+          color: COLORS.textSecondary,
+          marginTop: 1,
+          fontFamily: 'GeneralSans-Regular',
+        }}>
+          {isTyping ? 'typing...' : recipient?.isOnline ? 'online' : `last seen ${recipient?.lastSeen || 'unknown'}`}
+        </Text>
       </View>
       
       <TouchableOpacity
         onPress={() => setShowBlockModal(true)}
-        style={{
-          padding: 8,
-          borderRadius: 20,
-          backgroundColor: 'rgba(255,255,255,0.1)',
-        }}
+        style={{ padding: 8 }}
       >
-        <Ionicons name="ellipsis-vertical" size={20} color="#FFFFFF" />
+        <Ionicons name="ellipsis-vertical" size={20} color={COLORS.text} />
       </TouchableOpacity>
     </View>
   );
@@ -428,6 +544,7 @@ export default function ChatRoom() {
           textAlign: 'center',
           fontSize: 16,
           fontWeight: '500',
+          fontFamily: 'GeneralSans-Regular',
         }}>
           Loading chat...
         </Text>
@@ -435,161 +552,132 @@ export default function ChatRoom() {
     );
   }
 
-  return (
-    <View style={{ flex: 1, backgroundColor: COLORS.background }}>
-      <StatusBar barStyle="light-content" backgroundColor={COLORS.accent} />
-      
-      <ChatHeader />
-
-      {/* Messages Area */}
-      <ScrollView
-        ref={scrollViewRef}
-        style={{ 
-          flex: 1, 
-          backgroundColor: COLORS.background,
-          marginTop: 100,
-          marginBottom: 80,
-        }}
-        contentContainerStyle={{ 
-          paddingTop: 8,
-          paddingBottom: 20,
-        }}
-        onContentSizeChange={() => scrollToBottom()}
-        onScroll={({ nativeEvent }) => {
-          if (nativeEvent.contentOffset.y < 50) loadMoreMessages();
-        }}
-        showsVerticalScrollIndicator={false}
-      >
-        {messages.map((message, index) => {
-          const prev = messages[index - 1];
-          const showDate = !prev || formatDateHeader(message.timestamp) !== formatDateHeader(prev.timestamp);
-          
-          return (
-            <View key={message.id}>
-              {showDate && (
-                <View style={{
-                  alignItems: 'center',
-                  marginVertical: 16,
-                }}>
-                  <Text style={{
-                    color: COLORS.textSecondary,
-                    fontSize: 12,
-                    fontWeight: '600',
-                    backgroundColor: COLORS.inputBg,
-                    paddingHorizontal: 12,
-                    paddingVertical: 6,
-                    borderRadius: 16,
-                    borderWidth: 1,
-                    borderColor: COLORS.border,
-                  }}>
-                    {formatDateHeader(message.timestamp)}
-                  </Text>
-                </View>
-              )}
-              <MessageBubble message={message} />
-            </View>
-          );
-        })}
-        
-        {isTyping && (
-          <View style={{
-            alignSelf: 'flex-start',
-            marginHorizontal: 16,
-            marginVertical: 6,
-          }}>
-            <View style={{
-              backgroundColor: COLORS.messageOther,
-              borderRadius: 20,
-              paddingHorizontal: 16,
-              paddingVertical: 12,
-              flexDirection: 'row',
-              alignItems: 'center',
-            }}>
-              <View style={{ flexDirection: 'row', gap: 4 }}>
-                <Animated.View style={{
-                  width: 6,
-                  height: 6,
-                  borderRadius: 3,
-                  backgroundColor: COLORS.textMuted,
-                }} />
-                <Animated.View style={{
-                  width: 6,
-                  height: 6,
-                  borderRadius: 3,
-                  backgroundColor: COLORS.textMuted,
-                }} />
-                <Animated.View style={{
-                  width: 6,
-                  height: 6,
-                  borderRadius: 3,
-                  backgroundColor: COLORS.textMuted,
-                }} />
-              </View>
-            </View>
-          </View>
-        )}
-      </ScrollView>
-
-      {/* Reply Preview */}
-      {replyingTo && (
-        <View style={{
-          flexDirection: 'row',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          paddingHorizontal: 16,
-          paddingVertical: 12,
-          backgroundColor: COLORS.inputBg,
-          borderTopWidth: 1,
-          borderTopColor: COLORS.border,
+  if (!currentUserId) {
+    return (
+      <SafeAreaView style={{ 
+        flex: 1, 
+        justifyContent: 'center', 
+        alignItems: 'center', 
+        backgroundColor: COLORS.background 
+      }}>
+        <StatusBar barStyle="light-content" backgroundColor={COLORS.background} />
+        <ActivityIndicator size="large" color={COLORS.accent} />
+        <Text style={{
+          marginTop: 20,
+          color: COLORS.textSecondary,
+          textAlign: 'center',
+          fontSize: 16,
+          fontWeight: '500',
+          fontFamily: 'GeneralSans-Regular',
         }}>
-          <View style={{ flex: 1 }}>
-            <Text style={{
-              color: COLORS.text,
-              fontWeight: '600',
-              fontSize: 14,
-            }}>
-              Replying to {replyingTo.senderName || 'User'}
-            </Text>
-            <Text style={{
-              color: COLORS.textMuted,
-              fontSize: 13,
-              marginTop: 2,
-            }}>
-              {replyingTo.text && replyingTo.text.length > 40 
-                ? `${replyingTo.text.substring(0, 40)}...` 
-                : replyingTo.text}
-            </Text>
-          </View>
-          <TouchableOpacity onPress={() => setReplyingTo(null)}>
-            <Ionicons 
-              name="close" 
-              size={20} 
-              color={COLORS.textMuted} 
+          Please sign in to continue...
+        </Text>
+      </SafeAreaView>
+    );
+  }
+
+  return (
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <View style={{ flex: 1, backgroundColor: COLORS.background }}>
+        <StatusBar barStyle="light-content" backgroundColor={COLORS.background} />
+        
+        <ChatHeader />
+
+        {/* Messages Area */}
+        <ScrollView
+          ref={scrollViewRef}
+          style={{ 
+            flex: 1, 
+            backgroundColor: COLORS.background,
+          }}
+          contentContainerStyle={{ 
+            paddingTop: 20,
+            paddingBottom: 20,
+          }}
+          onContentSizeChange={() => scrollToBottom()}
+          showsVerticalScrollIndicator={false}
+        >
+          {messages.map((message, index) => {
+            const prev = messages[index - 1];
+            const showDate = !prev || formatDateHeader(message.timestamp) !== formatDateHeader(prev.timestamp);
+            
+            return (
+              <View key={message.id}>
+                {showDate && (
+                  <View style={{
+                    alignItems: 'center',
+                    marginVertical: 20,
+                  }}>
+                    <Text style={{
+                      color: COLORS.textSecondary,
+                      fontSize: 15,
+                      fontWeight: '600',
+                      fontFamily: 'GeneralSans-Medium',
+                    }}>
+                      {formatDateHeader(message.timestamp)}
+                    </Text>
+                  </View>
+                )}
+                <MessageBubble message={message} />
+              </View>
+            );
+          })}
+        </ScrollView>
+
+        {/* Message Input */}
+        <KeyboardAvoidingView 
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        >
+          <View style={{
+            flexDirection: 'row',
+            alignItems: 'center',
+            paddingHorizontal: 16,
+            paddingVertical: 12,
+            backgroundColor: COLORS.background,
+            borderTopWidth: 0.5,
+            borderTopColor: COLORS.border,
+          }}>
+            <TouchableOpacity style={{ marginRight: 12 }}>
+              <Ionicons name="attach" size={24} color={COLORS.textSecondary} />
+            </TouchableOpacity>
+            
+            <TextInput
+              value={messageText}
+              onChangeText={setMessageText}
+              placeholder="Type Something..."
+              placeholderTextColor={COLORS.textSecondary}
+              style={{
+                flex: 1,
+                backgroundColor: COLORS.background,
+                color: COLORS.text,
+                fontSize: 16,
+                paddingVertical: 8,
+                fontFamily: 'GeneralSans-Regular',
+              }}
+              multiline
             />
-          </TouchableOpacity>
-        </View>
-      )}
+            
+            <TouchableOpacity 
+              onPress={handleSendMessage}
+              disabled={!messageText.trim() || isBlocked}
+              style={{ marginLeft: 12 }}
+            >
+              <Ionicons 
+                name="send" 
+                size={24} 
+                color={(!messageText.trim() || isBlocked) ? COLORS.textSecondary : COLORS.accent} 
+              />
+            </TouchableOpacity>
+          </View>
+        </KeyboardAvoidingView>
 
-      {/* Floating Message Input */}
-      <MessageInput
-        chatId={chatId}
-        recipientId={recipientId}
-        isBlocked={isBlocked}
-        replyingTo={replyingTo}
-        onCancelReply={() => setReplyingTo(null)}
-        onSendMessage={scrollToBottom}
-        handleUnblockUser={() => setIsBlocked(false)}
-        scrollToBottom={scrollToBottom}
-        disappearingMessages={disappearingMessages}
-      />
-
-      {/* Block User Modal */}
-      <BlockUserModal
-        visible={showBlockModal}
-        onClose={() => setShowBlockModal(false)}
-        onBlock={handleBlock}
-        recipientName={recipient?.fullName}
-      />
-    </View>
+        <BlockUserModal
+          visible={showBlockModal}
+          onClose={() => setShowBlockModal(false)}
+          onBlock={handleBlock}
+          recipientName={recipient?.fullName}
+        />
+      </View>
+    </GestureHandlerRootView>
   );
 }

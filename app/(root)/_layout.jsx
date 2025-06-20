@@ -6,6 +6,14 @@ const Layout = () => {
       <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
      
       <Stack.Screen
+        name="createpost"
+        options={{
+          presentation: 'modal',
+          headerShown: false,
+        }}
+      />
+     
+      <Stack.Screen
         name="[chatRoom]"
         options={{
           headerShown: false,
@@ -29,6 +37,24 @@ const Layout = () => {
       />
       <Stack.Screen
         name="profile" 
+        options={{
+          headerShown: false,
+        }}
+      />
+        <Stack.Screen
+        name="search" 
+        options={{
+          headerShown: false,
+        }}
+      />
+       <Stack.Screen
+        name="settings" 
+        options={{
+          headerShown: false,
+        }}
+      />
+       <Stack.Screen
+        name="streak" 
         options={{
           headerShown: false,
         }}

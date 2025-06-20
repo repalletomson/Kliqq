@@ -17,8 +17,7 @@ import {
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons, MaterialIcons, FontAwesome5 } from '@expo/vector-icons';
-import { doc, getDoc, collection, onSnapshot, query, orderBy, addDoc, serverTimestamp } from 'firebase/firestore';
-import { db } from '../../../config/firebaseConfig';
+import { supabase } from '../../../config/supabaseConfig';
 import { useAuth } from '../../../context/authContext';
 import {
   addComment,
@@ -36,6 +35,8 @@ import {
   savePost,
   unsavePost,
   getSavedPosts,
+  hasUserLiked,
+  hasUserSaved,
 } from "../../../(apis)/post"
 import { LinearGradient } from 'expo-linear-gradient';
 
@@ -66,129 +67,310 @@ export default function PostDetailView() {
   const [isSaved, setIsSaved] = useState(false);
   const [likes, setLikes] = useState(0);
   const [isLikeProcessing, setIsLikeProcessing] = useState(false);
+  const [commentCount, setCommentCount] = useState(0);
   const scrollViewRef = useRef();
   const commentInputRef = useRef();
+  const [showAllRepliesMap, setShowAllRepliesMap] = useState({});
+
+  // Helper function to organize comments into hierarchical structure
+  const organizeComments = (commentsArray) => {
+    const commentMap = {};
+    const topLevelComments = [];
+
+    // First pass: create a map of all comments
+    commentsArray.forEach(comment => {
+      commentMap[comment.id] = {
+        ...comment,
+        replies: []
+      };
+    });
+
+    // Second pass: organize into hierarchy
+    commentsArray.forEach(comment => {
+      if (comment.parent_comment_id) {
+        // This is a reply
+        const parentComment = commentMap[comment.parent_comment_id];
+        if (parentComment) {
+          parentComment.replies.push(commentMap[comment.id]);
+        }
+      } else {
+        // This is a top-level comment
+        topLevelComments.push(commentMap[comment.id]);
+      }
+    });
+
+    return topLevelComments;
+  };
 
   useEffect(() => {
+    console.log('🔗 Setting up PostDetailView for post:', postId, 'user:', user?.uid);
+    
     const fetchPostDetails = async () => {
       try {
-        const postRef = doc(db, 'posts', postId);
-        const postSnap = await getDoc(postRef);
+        console.log('📖 Fetching post details for:', postId);
         
-        if (postSnap.exists()) {
-          const postData = { id: postSnap.id, ...postSnap.data() };
-          setPost(postData);
+        // Fetch post from Supabase
+        const { data: postData, error } = await supabase
+          .from('posts')
+          .select('*')
+          .eq('id', postId)
+          .single();
+        
+        if (error) {
+          console.error('❌ Error fetching post:', error);
+          return;
+        }
+        
+        if (postData) {
+          console.log('✅ Post data loaded:', postData.title);
+          console.log('📊 Post data fields:', Object.keys(postData));
+          console.log('🕐 Created at:', postData.created_at);
+          console.log('👤 User name:', postData.user_name);
+          console.log('🖼️ User avatar:', postData.user_avatar);
           
-          // Check if user has liked this post
-          const userLikes = postData.likes || [];
-          setIsLiked(userLikes.includes(user?.uid));
-          setLikes(userLikes.length);
+          // Normalize field names for consistent access
+          const normalizedPost = {
+            ...postData,
+            userName: postData.user_name || postData.userName || 'Anonymous',
+            userAvatar: postData.user_avatar || postData.userAvatar || 'https://cdn-icons-png.flaticon.com/512/149/149071.png',
+            createdAt: postData.created_at || postData.createdAt,
+            userId: postData.user_id || postData.userId
+          };
+          
+          setPost(normalizedPost);
+          
+          // Use the dedicated like count from the post data
+          setLikes(postData.like_count || 0);
+          setCommentCount(postData.comment_count || 0);
+          
+          // Check user's like and save status efficiently
+          if (user?.uid) {
+            const userLiked = await hasUserLiked(postId, user.uid);
+            setIsLiked(userLiked);
+            
+            const userSaved = await hasUserSaved(postId, user.uid);
+            setIsSaved(userSaved);
+          } else {
+            setIsLiked(false);
+            setIsSaved(false);
+          }
         }
       } catch (error) {
-        console.error('Error fetching post details:', error);
+        console.error('❌ Error fetching post details:', error);
+      }
+    };
+
+    const fetchComments = async () => {
+      try {
+        console.log('💬 Fetching comments for post:', postId);
+        
+        const { data: commentsData, error } = await supabase
+          .from('comments')
+          .select('*')
+          .eq('post_id', postId)
+          .order('created_at', { ascending: true });
+        
+        if (error) {
+          console.error('❌ Error fetching comments:', error);
+          return;
+        }
+        
+        console.log('✅ Comments loaded:', commentsData?.length || 0);
+        console.log('💬 Raw comments data:', commentsData);
+        
+        // Debug each comment
+        if (commentsData && commentsData.length > 0) {
+          commentsData.forEach((comment, index) => {
+            console.log(`Comment ${index}:`, {
+              id: comment.id,
+              content: comment.content,
+              user_name: comment.user_name,
+              created_at: comment.created_at,
+              parent_comment_id: comment.parent_comment_id
+            });
+          });
+        }
+        
+        // Organize comments into hierarchical structure
+        const organizedComments = organizeComments(commentsData || []);
+        console.log('🏗️ Organized comments:', organizedComments.length, 'top-level comments');
+        setComments(organizedComments);
+      } catch (error) {
+        console.error('❌ Error fetching comments:', error);
       }
     };
 
     fetchPostDetails();
+    fetchComments();
     
-    // Real-time comments listener
-    const commentsRef = collection(db, 'posts', postId, 'comments');
-    const q = query(commentsRef, orderBy('timestamp', 'asc'));
-    
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const commentsData = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data(),
-        replies: []
-      }));
-      
-      // Fetch replies for each comment
-      commentsData.forEach(comment => {
-        const repliesRef = collection(db, 'posts', postId, 'comments', comment.id, 'replies');
-        const repliesQuery = query(repliesRef, orderBy('timestamp', 'asc'));
-        
-        onSnapshot(repliesQuery, (repliesSnapshot) => {
-          const replies = repliesSnapshot.docs.map(doc => ({
-            id: doc.id,
-            ...doc.data()
-          }));
+    // Set up real-time subscription for comments with improved handling
+    const commentsChannel = supabase
+      .channel(`comments-${postId}`, {
+        config: {
+          broadcast: { self: true },
+          presence: { key: user?.uid }
+        }
+      })
+      .on('postgres_changes', 
+        { 
+          event: '*', 
+          schema: 'public', 
+          table: 'comments',
+          filter: `post_id=eq.${postId}`
+        }, 
+        (payload) => {
+          console.log('💬 Real-time comment update:', {
+            eventType: payload.eventType,
+            new: payload.new,
+            old: payload.old
+          });
           
-          setComments(prevComments => 
-            prevComments.map(c => 
-              c.id === comment.id ? { ...c, replies } : c
-            )
-          );
-        });
-      });
-      
-      setComments(commentsData);
-    });
+          if (payload.eventType === 'INSERT' && payload.new) {
+            // Fetch all comments again to maintain proper hierarchy
+            fetchComments();
+            
+            // Update comment count only for top-level comments
+            if (!payload.new.parent_comment_id) {
+              setCommentCount(prev => prev + 1);
+            }
+          } else if (payload.eventType === 'DELETE' && payload.old) {
+            // Fetch all comments again to maintain proper hierarchy
+            fetchComments();
+            
+            // Update comment count only for top-level comments
+            if (!payload.old.parent_comment_id) {
+              setCommentCount(prev => Math.max(0, prev - 1));
+            }
+          } else if (payload.eventType === 'UPDATE' && payload.new) {
+            // Fetch all comments again to maintain proper hierarchy
+            fetchComments();
+          }
+        }
+      )
+      .subscribe();
+
+    // Set up real-time subscription for likes
+    const likesChannel = supabase
+      .channel(`likes-${postId}`)
+      .on('postgres_changes', 
+        { 
+          event: '*', 
+          schema: 'public', 
+          table: 'likes',
+          filter: `post_id=eq.${postId}`
+        }, 
+        async (payload) => {
+          console.log('❤️ Like update:', payload.eventType);
+          
+          // Update user's like status
+          const { data: likeData, error: likeError } = await supabase
+            .from('likes')
+            .select('id')
+            .eq('post_id', postId)
+            .eq('user_id', user?.uid);
+          
+          if (!likeError) {
+            setIsLiked(likeData && likeData.length > 0);
+          }
+          
+          // Update total likes count
+          const { count: likesCount, error: countError } = await supabase
+            .from('likes')
+            .select('*', { count: 'exact', head: true })
+            .eq('post_id', postId);
+          
+          if (!countError) {
+            setLikes(likesCount || 0);
+          }
+        }
+      )
+      .subscribe();
     
-    return () => unsubscribe();
-  }, [postId, user]);
+    return () => {
+      console.log('🔌 Cleaning up post detail subscriptions');
+      supabase.removeChannel(commentsChannel);
+      supabase.removeChannel(likesChannel);
+    };
+  }, [postId, user?.uid]);
 
   const formatTimestamp = (timestamp) => {
-    if (!timestamp) return '';
-    
-    const now = new Date();
-    const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
-    const diffMs = now - date;
-    const diffMins = Math.floor(diffMs / 60000);
-    const diffHrs = Math.floor(diffMins / 60);
-    const diffDays = Math.floor(diffHrs / 24);
-    
-    if (diffMins < 1) return 'just now';
-    if (diffMins < 60) return `${diffMins}m`;
-    if (diffHrs < 24) return `${diffHrs}h`;
-    if (diffDays < 7) return `${diffDays}d`;
-    
-    return date.toLocaleDateString();
+    try {
+      const date = new Date(timestamp);
+      const now = new Date();
+      const diffInMs = now - date;
+      const diffInMinutes = Math.floor(diffInMs / (1000 * 60));
+      
+      if (diffInMinutes < 1) return 'now';
+      if (diffInMinutes < 60) return `${diffInMinutes}m ago`;
+      
+      const diffInHours = Math.floor(diffInMinutes / 60);
+      if (diffInHours < 24) return `${diffInHours}h ago`;
+      
+      const diffInDays = Math.floor(diffInHours / 24);
+      if (diffInDays < 7) return `${diffInDays}d ago`;
+      
+      return date.toLocaleDateString();
+    } catch (error) {
+      return 'unknown';
+    }
   };
 
   const renderImageGrid = () => {
-    if (!post?.mediaUrls?.length) return null;
-
-    const images = post.mediaUrls;
-    const imageCount = images.length;
+    if (!post) return null;
+    
+    // Handle images from multiple possible properties
+    const images = post.mediaUrls || post.images || (post.mediaUrl ? [post.mediaUrl] : []);
+    if (images.length === 0) return null;
     
     return (
-      <View style={{ marginTop: 16, borderRadius: 20, overflow: 'hidden' }}>
-        {imageCount === 1 && (
+      <View style={{ marginTop: 16 }}>
+        {images.length === 1 ? (
           <TouchableOpacity onPress={() => setSelectedImage(images[0])}>
-            <Image 
-              source={{ uri: images[0] }} 
-              style={{ width: '100%', height: 300, borderRadius: 20 }}
-              resizeMode="cover"
-            />
+            <Image source={{ uri: images[0] }} style={{ width: '100%', height: 280, borderRadius: 16 }} resizeMode="cover" />
           </TouchableOpacity>
-        )}
-        
-        {imageCount === 2 && (
-          <View style={{ flexDirection: 'row', gap: 8 }}>
-            {images.map((url, index) => (
+        ) : (
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between' }}>
+            {images.slice(0, 4).map((uri, index) => (
               <TouchableOpacity 
                 key={index} 
-                onPress={() => setSelectedImage(url)}
-                style={{ flex: 1, height: 240 }}
+                onPress={() => setSelectedImage(uri)} 
+                style={{ 
+                  width: '48.5%', // Use percentage for responsive grid
+                  aspectRatio: 1, // Maintain square shape
+                  marginBottom: '3%', // Add vertical gap
+                }}
               >
-                <Image 
-                  source={{ uri: url }} 
-                  style={{ width: '100%', height: '100%', borderRadius: 16 }}
-                  resizeMode="cover"
-                />
+                <Image source={{ uri }} style={{ width: '100%', height: '100%', borderRadius: 12 }} resizeMode="cover" />
+                {index === 3 && images.length > 4 && (
+                  <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.7)', borderRadius: 12, justifyContent: 'center', alignItems: 'center' }}>
+                    <Text style={{ color: 'white', fontSize: 18, fontWeight: 'bold' }}>+{images.length - 4}</Text>
+                  </View>
+                )}
               </TouchableOpacity>
             ))}
           </View>
         )}
-        
-        {/* Add more image layouts as needed */}
       </View>
     );
   };
 
+  const toggleShowAllReplies = (commentId) => {
+    setShowAllRepliesMap(prev => ({
+      ...prev,
+      [commentId]: !prev[commentId]
+    }));
+  };
+
   const renderCommentItem = (item, isReply = false) => {
-    const isOwnComment = item.uid === user?.uid;
-    const [showAllReplies, setShowAllReplies] = useState(false);
+    // Handle both old and new field naming conventions
+    const isOwnComment = (item.user_id) === user?.uid;
+    const userName = item.user_name || 'Anonymous';
+    const userAvatar = item.user_avatar || 'https://cdn-icons-png.flaticon.com/512/149/149071.png';
+    const isAnonymous = item.is_anonymous || false;
+    const content = item.content || '';
+    const timestamp = item.created_at;
+    
+    const showAllReplies = showAllRepliesMap[item.id] || false;
     const repliesToShow = showAllReplies ? item.replies : item.replies?.slice(0, 1) || [];
     const hasMoreReplies = item.replies && item.replies.length > 1;
     
@@ -196,29 +378,26 @@ export default function PostDetailView() {
       <View 
         key={item.id} 
         style={{
-          backgroundColor: COLORS.cardBg,
-          marginBottom: 10,
-          marginLeft: isReply ? 28 : 0,
-          borderRadius: 16,
-          padding: 16,
-          shadowColor: COLORS.shadow,
-          shadowOffset: { width: 0, height: 1 },
-          shadowOpacity: 0.4,
-          shadowRadius: 6,
-          elevation: 1,
+          backgroundColor: isReply ? 'rgba(139, 92, 246, 0.05)' : COLORS.cardBg,
+          marginBottom: 8,
+          marginLeft: isReply ? 40 : 0,
+          borderRadius: 12,
+          padding: isReply ? 12 : 16,
+          borderLeftWidth: isReply ? 2 : 0,
+          borderLeftColor: isReply ? COLORS.accent : 'transparent',
         }}
       >
         <View style={{ flexDirection: 'row', alignItems: 'flex-start' }}>
           <Image 
             source={{ 
-              uri: item.isAnonymous 
+              uri: isAnonymous 
                 ? 'https://cdn-icons-png.flaticon.com/512/149/149071.png' 
-                : item.userAvatar || 'https://cdn-icons-png.flaticon.com/512/149/149071.png'
+                : userAvatar
             }} 
             style={{ 
-              width: 38, 
-              height: 38, 
-              borderRadius: 19, 
+              width: isReply ? 32 : 38, 
+              height: isReply ? 32 : 38, 
+              borderRadius: isReply ? 16 : 19, 
               marginRight: 12,
             }} 
           />
@@ -229,25 +408,25 @@ export default function PostDetailView() {
                 <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 2 }}>
                   <Text style={{ 
                     color: COLORS.text, 
-                    fontSize: 15, 
+                    fontSize: isReply ? 13 : 15, 
                     fontWeight: '700',
                     marginRight: 8
                   }}>
-                    {item.isAnonymous ? 'Anonymous' : item.userName}
+                    {userName}
                   </Text>
                   {isOwnComment && (
                     <View style={{
                       backgroundColor: COLORS.accent,
-                      borderRadius: 8,
-                      paddingHorizontal: 6,
-                      paddingVertical: 2,
+                      borderRadius: 6,
+                      paddingHorizontal: 4,
+                      paddingVertical: 1,
                     }}>
-                      <Text style={{ color: '#FFF', fontSize: 9, fontWeight: '600' }}>You</Text>
+                      <Text style={{ color: '#FFF', fontSize: 8, fontWeight: '600' }}>You</Text>
                     </View>
                   )}
                 </View>
-                <Text style={{ color: COLORS.textSecondary, fontSize: 12, fontWeight: '500' }}>
-                  {formatTimestamp(item.timestamp)}
+                <Text style={{ color: COLORS.textMuted, fontSize: isReply ? 11 : 12, fontWeight: '500' }}>
+                  {formatTimestamp(timestamp)}
                 </Text>
               </View>
               
@@ -257,18 +436,18 @@ export default function PostDetailView() {
                     flexDirection: 'row', 
                     alignItems: 'center',
                     backgroundColor: 'rgba(255,255,255,0.05)',
-                    paddingHorizontal: 10,
-                    paddingVertical: 6,
-                    borderRadius: 14,
+                    paddingHorizontal: 8,
+                    paddingVertical: 4,
+                    borderRadius: 12,
                     marginLeft: 8,
                   }}
-                  onPress={() => handleReplyPress(item.id, item.isAnonymous ? 'Anonymous' : item.userName)}
+                  onPress={() => handleReplyPress(item.id, userName)}
                 >
-                  <Ionicons name="chatbubble-outline" size={13} color={COLORS.textSecondary} />
+                  <Ionicons name="chatbubble-outline" size={11} color={COLORS.textSecondary} />
                   <Text style={{ 
                     color: COLORS.textSecondary, 
-                    marginLeft: 4, 
-                    fontSize: 11,
+                    marginLeft: 3, 
+                    fontSize: 10,
                     fontWeight: '600'
                   }}>
                     Reply
@@ -279,28 +458,28 @@ export default function PostDetailView() {
               {isOwnComment && (
                 <TouchableOpacity 
                   style={{
-                    width: 30,
-                    height: 30,
-                    borderRadius: 15,
+                    width: 24,
+                    height: 24,
+                    borderRadius: 12,
                     backgroundColor: 'rgba(255,255,255,0.1)',
                     alignItems: 'center',
                     justifyContent: 'center',
                     marginLeft: 8,
                   }}
                 >
-                  <MaterialIcons name="more-vert" size={16} color={COLORS.textSecondary} />
+                  <MaterialIcons name="more-vert" size={14} color={COLORS.textSecondary} />
                 </TouchableOpacity>
               )}
             </View>
             
             <Text style={{ 
               color: COLORS.text, 
-              fontSize: 15,
-              lineHeight: 20,
+              fontSize: isReply ? 13 : 15,
+              lineHeight: isReply ? 18 : 20,
               marginBottom: 8,
               fontWeight: '400'
             }}>
-              {item.content}
+              {content}
             </Text>
           </View>
         </View>
@@ -313,18 +492,18 @@ export default function PostDetailView() {
               <TouchableOpacity
                 style={{
                   marginTop: 8,
-                  paddingVertical: 8,
-                  paddingHorizontal: 16,
+                  paddingVertical: 6,
+                  paddingHorizontal: 12,
                   backgroundColor: 'rgba(139, 92, 246, 0.1)',
-                  borderRadius: 12,
+                  borderRadius: 10,
                   alignSelf: 'flex-start',
-                  marginLeft: 50,
+                  marginLeft: 44,
                 }}
-                onPress={() => setShowAllReplies(!showAllReplies)}
+                onPress={() => toggleShowAllReplies(item.id)}
               >
                 <Text style={{
                   color: COLORS.accent,
-                  fontSize: 13,
+                  fontSize: 12,
                   fontWeight: '600'
                 }}>
                   {showAllReplies 
@@ -352,17 +531,64 @@ export default function PostDetailView() {
       setIsLikeProcessing(true);
       
       if (isLiked) {
-        await removeLike(post.id, user);
-        setLikes((prev) => Math.max(0, prev - 1));
+        // User wants to unlike - delete from likes table
+        const { error } = await supabase
+          .from('likes')
+          .delete()
+          .eq('post_id', post.id)
+          .eq('user_id', user.uid);
+          
+        if (error) {
+          console.error('❌ Error removing like:', error);
+          Alert.alert("Error", "Failed to remove like. Please try again.");
+          return;
+        }
+        
+        console.log('✅ Like removed successfully');
         setIsLiked(false);
+        
       } else {
-        await addLike(post.id, user);
-        setLikes((prev) => prev + 1);
+        // User wants to like - insert into likes table
+        const { error } = await supabase
+          .from('likes')
+          .insert({
+            post_id: post.id,
+            user_id: user.uid,
+            created_at: new Date().toISOString()
+          });
+          
+        if (error) {
+          if (error.code === '23505') { // Unique constraint violation
+            console.log('⚠️ User already liked this post');
+            setIsLiked(true); // Sync UI state
+            return;
+          }
+          console.error('❌ Error adding like:', error);
+          Alert.alert("Error", "Failed to add like. Please try again.");
+          return;
+        }
+        
+        console.log('✅ Like added successfully');
         setIsLiked(true);
       }
     } catch (error) {
       console.error("Like error:", error);
-      Alert.alert("Error", "Unable to process like. Please try again.");
+      
+      // If there's a duplicate key error, it means the like exists but UI is out of sync
+      if (error.code === '23505') {
+        console.log("Duplicate key error - syncing UI state");
+        setIsLiked(true);
+        
+        // Re-fetch to get accurate count
+        try {
+          const actualLikes = await getLikes(post.id);
+          setLikes(actualLikes.length);
+        } catch (syncError) {
+          console.error("Error syncing like state:", syncError);
+        }
+      } else {
+        Alert.alert("Error", "Unable to process like. Please try again.");
+      }
     } finally {
       setTimeout(() => {
         setIsLikeProcessing(false);
@@ -373,15 +599,34 @@ export default function PostDetailView() {
   const handleSavePost = async () => {
     try {
       if (isSaved) {
-        await unsavePost(post.id, user.uid);
-        setIsSaved(false);
+        // User wants to unsave
+        const result = await unsavePost(post.id, user.uid);
+        if (result !== false) {
+          setIsSaved(false);
+        }
       } else {
-        await savePost(post.id, user.uid);
-        setIsSaved(true);
+        // User wants to save
+        const result = await savePost(post.id, user.uid);
+        
+        // Check if save was actually added (result will be null if already saved)
+        if (result !== null) {
+          setIsSaved(true);
+        } else {
+          // Save already exists, sync the UI state
+          console.log("Save already exists, syncing UI state");
+          setIsSaved(true);
+        }
       }
     } catch (error) {
       console.error("Save post error:", error);
-      Alert.alert("Error", "Unable to save post. Please try again.");
+      
+      // If there's a duplicate key error, it means the save exists but UI is out of sync
+      if (error.code === '23505') {
+        console.log("Duplicate key error - syncing save state");
+        setIsSaved(true);
+      } else {
+        Alert.alert("Error", "Unable to save post. Please try again.");
+      }
     }
   };
 
@@ -398,30 +643,68 @@ export default function PostDetailView() {
 
   const handleAddComment = async () => {
     if (!newComment.trim()) return;
-
+    
     try {
+      console.log('💬 Adding comment to post:', postId);
+      
       const commentData = {
-        content: newComment,
-        userName: isAnonymous ? 'Anonymous' : (user?.displayName || 'User'),
-        userAvatar: isAnonymous ? 'https://cdn-icons-png.flaticon.com/512/149/149071.png' : (user?.photoURL || 'https://cdn-icons-png.flaticon.com/512/149/149071.png'),
-        timestamp: serverTimestamp(),
-        isAnonymous: isAnonymous,
-        uid: user?.uid,
+        post_id: postId,
+        user_id: user.uid,
+        parent_comment_id: replyingTo?.id || null,
+        content: newComment.trim(),
+        user_name: isAnonymous ? 'Anonymous' : user.full_name || user.name || 'User',
+        user_avatar: isAnonymous ? null : user.profile_image || user.avatar,
+        is_anonymous: isAnonymous,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
       };
 
-      if (replyingTo) {
-        await addDoc(
-          collection(db, 'posts', postId, 'comments', replyingTo.id, 'replies'), 
-          commentData
-        );
-        setReplyingTo(null);
-      } else {
-        await addDoc(collection(db, 'posts', postId, 'comments'), commentData);
-      }
-      
+      // Clear form immediately for better UX
       setNewComment('');
+      setIsAnonymous(false);
+      setReplyingTo(null);
+
+      // Scroll to bottom to show new comment area
+      setTimeout(() => {
+        scrollViewRef.current?.scrollToEnd({ animated: true });
+      }, 100);
+
+      // Save to database
+      const { data, error } = await supabase
+        .from('comments')
+        .insert(commentData)
+        .select()
+        .single();
+
+      if (error) {
+        console.error('❌ Error adding comment:', error);
+        Alert.alert('Error', 'Failed to add comment. Please try again.');
+        return;
+      }
+
+      console.log('✅ Comment added successfully to database');
+      
+      // The real-time subscription will handle updating the UI
+
+      // ---- Streak Logic ----
+      // If the comment is on another user's post, update their streak
+      if (post && user && post.userId !== user.uid) {
+        console.log('🔥 Updating streak for user:', post.userId);
+        const { error: streakError } = await supabase.rpc('handle_comment_streak_update', {
+          p_user_id: post.userId
+        });
+
+        if (streakError) {
+          console.error('❌ Error updating streak:', streakError);
+          // Non-critical error, so we don't need to alert the user
+        } else {
+          console.log('✅ Streak updated successfully');
+        }
+      }
+
     } catch (error) {
-      console.error('Comment error:', error);
+      console.error('❌ Error adding comment:', error);
+      Alert.alert('Error', 'Failed to add comment. Please try again.');
     }
   };
 
@@ -610,14 +893,14 @@ export default function PostDetailView() {
                   justifyContent: 'center',
                 }}>
                   <Ionicons name="chatbubble-outline" size={20} color={COLORS.textSecondary} />
-                  {comments.length > 0 && (
+                  {commentCount > 0 && (
                     <Text style={{
                       marginLeft: 8,
                       color: COLORS.textSecondary,
                       fontSize: 15,
                       fontWeight: '600',
                     }}>
-                      {comments.length}
+                      {commentCount}
                     </Text>
                   )}
                 </TouchableOpacity>
@@ -666,7 +949,7 @@ export default function PostDetailView() {
               fontWeight: '700', 
               marginBottom: 20 
             }}>
-              Comments ({comments.length})
+              Comments ({commentCount})
             </Text>
             
             {comments.length > 0 ? (

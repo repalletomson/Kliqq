@@ -1,22 +1,26 @@
-import { createContext, useContext, useState, useCallback } from 'react';
-import { db, auth } from '../config/firebaseConfig';
+import { createContext, useContext, useState, useCallback, useEffect } from 'react';
+import { db } from '../config/firebaseConfig';
 import { 
   collection, 
   query, 
   where, 
   orderBy, 
-  onSnapshot 
+  onSnapshot,
+  getDoc,
+  doc
 } from 'firebase/firestore';
+import { useAuth } from './authContext';
 
 const ChatContext = createContext({});
 
 export function ChatProvider({ children }) {
+  const { user } = useAuth();
   const [chats, setChats] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
   const fetchChats = useCallback(async () => {
-    if (!auth.currentUser) return;
+    if (!user?.uid) return;
 
     try {
       setLoading(true);
@@ -25,7 +29,7 @@ export function ChatProvider({ children }) {
       const chatsRef = collection(db, 'chats');
       const q = query(
         chatsRef,
-        where('participants', 'array-contains', auth.currentUser.uid),
+        where('participants', 'array-contains', user.uid),
         orderBy('lastMessageTime', 'desc')
       );
 
@@ -34,7 +38,7 @@ export function ChatProvider({ children }) {
           snapshot.docs.map(async (doc) => {
             const data = doc.data();
             const otherUserId = data.participants.find(
-              id => id !== auth.currentUser.uid
+              id => id !== user.uid
             );
 
             // Fetch other user's details
@@ -57,7 +61,7 @@ export function ChatProvider({ children }) {
       setError('Failed to load chats');
       setLoading(false);
     }
-  }, []);
+  }, [user?.uid]);
 
   useEffect(() => {
     const unsubscribe = fetchChats();

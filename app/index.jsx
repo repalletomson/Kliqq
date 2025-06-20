@@ -1,6 +1,4 @@
-
-
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, Animated, Image } from 'react-native';
 import { useAuth } from '../context/authContext';
 import { Redirect } from 'expo-router';
@@ -28,21 +26,73 @@ const Loader = () => {
   return (
     <View style={styles.wrapper}>
       <Image
-        source={require('../assets/images/loader.gif')}
-        className="max-w-[380px] w-full h-[298px]"
-        resizeMode="contain"
+        source={require('../assets/images/woman-is-looking-her-phone-saying-you-re-lock_1276622-21918-removebg-preview.png')}
+        style={styles.image}
       />
+      <Animated.Text
+        style={[
+          styles.text,
+          {
+            opacity: loadingAnimation.interpolate({
+              inputRange: [0, 1],
+              outputRange: [0.3, 1],
+            }),
+          },
+        ]}
+      >
+        Loading...
+      </Animated.Text>
     </View>
   );
 };
 
-export default function Page() {
-  const { isAuthenticated } = useAuth();
-  console.log('Index page', isAuthenticated);
+export default function IndexPage() {
+  const { isAuthenticated, isProfileComplete, isCollegeSelected } = useAuth();
+  const [shouldRedirect, setShouldRedirect] = useState(false);
+  const [redirectTo, setRedirectTo] = useState('');
 
-  if (isAuthenticated === undefined) return <Loader />;
-  if (isAuthenticated) return <Redirect href="/(root)/(tabs)/home" />;
-  return <Redirect href="/(auth)/welcome" />;
+  useEffect(() => {
+    // Add a delay to ensure all auth states are properly initialized and prevent race conditions
+    const timer = setTimeout(() => {
+      console.log('🔍 Navigation decision - Auth states:', {
+        isAuthenticated,
+        isProfileComplete,
+        isCollegeSelected
+      });
+
+      // Only redirect when we have clear states to avoid navigation conflicts
+      if (isAuthenticated === false) {
+        console.log('➡️ Not authenticated, going to welcome');
+        setRedirectTo('/(auth)/welcome');
+        setShouldRedirect(true);
+      } else if (isAuthenticated === true) {
+        if (isProfileComplete === false) {
+          console.log('➡️ Profile incomplete, going to userprofile');
+          setRedirectTo('/(auth)/userprofile');
+          setShouldRedirect(true);
+        } else if (isProfileComplete === true) {
+          console.log('➡️ Profile complete, going to home');
+          setRedirectTo('/(root)/(tabs)/home');
+          setShouldRedirect(true);
+        } else {
+          // If profile completion state is undefined, wait longer
+          console.log('⏳ Profile completion state undefined, waiting...');
+        }
+      } else {
+        console.log('🔄 Auth state still undefined, showing loader');
+      }
+    }, 250); // Increased delay to prevent race conditions
+
+    return () => clearTimeout(timer);
+  }, [isAuthenticated, isProfileComplete, isCollegeSelected]);
+
+  // Show loading while determining where to navigate
+  if (isAuthenticated === undefined || !shouldRedirect) {
+    return <Loader />;
+  }
+
+  // Safe redirect after state is determined
+  return <Redirect href={redirectTo} />;
 }
 
 const styles = StyleSheet.create({
@@ -51,5 +101,15 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     flex: 1,
     backgroundColor: '#000000', // Match black theme
+  },
+  image: {
+    width: 200,
+    height: 200,
+    marginBottom: 20,
+  },
+  text: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#fff',
   },
 });

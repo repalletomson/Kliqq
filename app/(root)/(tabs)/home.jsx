@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
   View,
   Text,
@@ -13,75 +13,41 @@ import {
   Platform,
   Appearance,
   FlatList,
+  InteractionManager,
+  ActivityIndicator,
+  RefreshControl,
 } from 'react-native';
 import { Ionicons, FontAwesome, MaterialCommunityIcons } from '@expo/vector-icons';
-import { collection, query, orderBy, onSnapshot, where, getCountFromServer, getDocs } from 'firebase/firestore';
-import ConfettiCannon from 'react-native-confetti';
 import { useSharedValue, useAnimatedStyle, withSpring, withTiming, interpolate } from 'react-native-reanimated';
 import { LinearGradient } from 'expo-linear-gradient';
 import Carousel from 'react-native-reanimated-carousel';
-import { db ,auth} from '../../../config/firebaseConfig';
+import { supabase } from '../../../config/supabaseConfig';
+import { getFeedPosts } from '../../../(apis)/post';
 import PostCard from '../../../components/PostCard';
 import { useAuth } from '../../../context/authContext';
 import CreatePostScreen from '../../../components/CreatePost';
+import { AppText } from '../../_layout';
 import { router } from 'expo-router';
-import { getUserStreak } from '../../../(apis)/streaks';
-
-
+import { safeNavigate, clearNavigationState } from '../../../utiles/safeNavigation';
+import SafeViewErrorBoundary from '../../../components/SafeViewErrorBoundary';
+import { useSafeNavigation } from '../../../hooks/useSafeNavigation';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import EventEmitter from '../../../utiles/EventEmitter';
 
 const { width } = Dimensions.get('window');
 const SLIDER_WIDTH = width;
 const ITEM_WIDTH = SLIDER_WIDTH * 0.95;
 
-// Custom Skeleton Loader Component to replace react-native-skeleton-content-nonexpo
-// const SkeletonLoader = ({ theme }) => {
-//   const opacity = useRef(new Animated.Value(0.3)).current;
+const COLORS = {
+  background: '#000000',
+  text: '#FFFFFF',
+  accent: '#8B5CF6',
+  textSecondary: '#E5E5E5',
+  textMuted: '#A1A1AA',
+};
 
-//   useEffect(() => {
-//     const animation = Animated.loop(
-//       Animated.sequence([
-//         Animated.timing(opacity, {
-//           toValue: 0.7,
-//           duration: 800,
-//           useNativeDriver: true,
-//         }),
-//         Animated.timing(opacity, {
-//           toValue: 0.3,
-//           duration: 800,
-//           useNativeDriver: true,
-//         }),
-//       ])
-//     );
-    
-//     animation.start();
-    
-//     return () => animation.stop();
-//   }, [opacity]);
-  
-//   const skeletonColor = theme === 'dark' ? '#3F3F46' : '#E5E7EB';
-  
-//   const SkeletonItem = () => (
-//     <Animated.View 
-//       style={{
-//         width: '90%',
-//         height: 150,
-//         backgroundColor: skeletonColor,
-//         marginBottom: 10,
-//         marginHorizontal: '5%',
-//         borderRadius: 8,
-//         opacity,
-//       }}
-//     />
-//   );
-  
-//   return (
-//     <View style={{ flex: 1, width: '100%', paddingVertical: 16 }}>
-//       <SkeletonItem />
-//       <SkeletonItem />
-//       <SkeletonItem />
-//     </View>
-//   );
-// };
+const POSTS_CACHE_KEY = '@posts_cache';
+const POSTS_CACHE_EXPIRY = 5 * 60 * 1000; // 5 minutes
 
 export default function EnhancedHome() {
   const [posts, setPosts] = useState([]);
@@ -90,30 +56,65 @@ export default function EnhancedHome() {
   const [refreshing, setRefreshing] = useState(false);
   const [isModalVisible, setIsModalVisible] = useState(false);
   const [hotPost, setHotPost] = useState(null);
-  const [userStreak, setUserStreak] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [activeCarouselIndex, setActiveCarouselIndex] = useState(0);
   const [showFullButton, setShowFullButton] = useState(true);
-  const [showStreakModal, setShowStreakModal] = useState(false);
   const [carouselItems, setCarouselItems] = useState([]);
   const { user } = useAuth();
-  // const user= auth.currentUser;
-  const confettiRef = useRef(null);
-  const streakScale = useSharedValue(1);
   const scrollY = useRef(new Animated.Value(0)).current;
-  const [streakUpdated, setStreakUpdated] = useState(false);
   const [theme, setTheme] = useState(Appearance.getColorScheme() || 'dark');
   const shareButtonScale = useSharedValue(1);
   const cardOpacity = useSharedValue(0);
   const [isSearchExpanded, setIsSearchExpanded] = useState(false);
+  const isMounted = useRef(true);
+  const lastFetchTime = useRef(0);
   const searchBarHeight = useSharedValue(0);
   const searchBarOpacity = useSharedValue(0);
 
-  // console.log(user)c
+  const { safeNavigate } = useSafeNavigation({
+    onCleanup: () => {
+      if (isModalVisible) {
+        setIsModalVisible(false);
+      }
+    }
+  });
+
   useEffect(() => {
-    const subscription = Appearance.addChangeListener(({ colorScheme }) => setTheme(colorScheme));
-    return () => subscription.remove();
-  }, []);
+    isMounted.current = true;
+    const colorSchemeListener = Appearance.addChangeListener(({ colorScheme }) => {
+      if (isMounted.current) setTheme(colorScheme);
+    });
+  
+    InteractionManager.runAfterInteractions(() => {
+      if (isMounted.current) {
+        fetchPosts();
+      }
+    });
+
+    const channel = supabase
+      .channel('realtime-posts-feed')
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'posts' },
+        () => {
+          fetchPosts(true); // Refetch posts on new posts
+        }
+      )
+      .subscribe();
+
+    const deleteListener = EventEmitter.on('post-deleted', (deletedPostId) => {
+      if (isMounted.current) {
+        setPosts(prevPosts => prevPosts.filter(p => p.id !== deletedPostId));
+      }
+    });
+  
+    return () => {
+      isMounted.current = false;
+      colorSchemeListener.remove();
+      supabase.removeChannel(channel);
+      deleteListener(); // Unsubscribe from the event listener
+    };
+  }, [user?.uid]);
 
   const colors = {
     background: theme === 'dark' ? '#000000' : '#FFFFFF',
@@ -123,107 +124,189 @@ export default function EnhancedHome() {
     secondaryText: theme === 'dark' ? '#9E9E9E' : '#6B7280',
     border: theme === 'dark' ? '#333333' : '#E5E7EB',
   };
- console.log("home") 
-  const baseCarouselItems = [
-    { id: 1, title: "ChatWithFriends", text: "Learn to code with peers", path:"chat",image: "https://images.unsplash.com/photo-1517694712202-14dd9538aa97", type: "info" },
-    { id: 2, title: "Join in groups", text: "Prepare for interviews",path:"groups", image: "https://images.unsplash.com/photo-1522202176988-66273c2fd55f", type: "info" },
-    { id: 3, title: "Connect", text: "Connect with peers ,friends and mentors",path:"connect", image: "https://images.unsplash.com/photo-1531403009284-440f080d1e12", type: "info" },
-  ];
 
-  const streakAnimatedStyle = useAnimatedStyle(() => ({ transform: [{ scale: streakScale.value }] }));
+  const baseCarouselItems = [
+    { id: 1, title: "ChatWithFriends", text: "Learn to code with peers", path:"chat", type: "info" },
+    { id: 2, title: "Join in groups", text: "Prepare for interviews", path:"groups", type: "info" },
+    { id: 3, title: "Connect", text: "Connect with peers, friends and mentors", path:"connect", type: "info" },
+  ];
 
   const fetchHotPosts = async () => {
     try {
-      const postsCountSnapshot = await getCountFromServer(query(collection(db, 'posts')));
-      if (postsCountSnapshot.data().count < 1) return null;
+      // Use Supabase to get posts count
+      const { count, error: countError } = await supabase
+        .from('posts')
+        .select('*', { count: 'exact', head: true });
+
+      if (countError || count < 1) return null;
 
       const today = new Date();
       today.setHours(0, 0, 0, 0);
       const yesterday = new Date(today);
       yesterday.setDate(yesterday.getDate() - 1);
 
-      const hotPostsQuery = query(collection(db, 'posts'), where('createdAt', '>=', yesterday), where('createdAt', '<', today));
-      const hotPostsSnapshot = await getDocs(hotPostsQuery);
-      if (hotPostsSnapshot.empty) return null;
+      const { data: hotPosts, error } = await supabase
+        .from('posts')
+        .select('*')
+        .gte('created_at', yesterday.toISOString())
+        .lt('created_at', today.toISOString())
+        .order('created_at', { ascending: false });
 
-      const posts = hotPostsSnapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data(),
-        engagementScore: (Array.isArray(doc.data().likes) ? doc.data().likes.length : 0) + (Array.isArray(doc.data().comments) ? doc.data().comments.length : 0),
+      if (error || !hotPosts?.length) return null;
+
+      const postsWithEngagement = hotPosts.map(post => ({
+        ...post,
+        engagementScore: (post.like_count || 0) + (post.comment_count || 0),
       }));
 
-      posts.sort((a, b) => b.engagementScore - a.engagementScore || b.createdAt.toDate() - a.createdAt.toDate());
-      return posts.length > 0 ? posts[0] : null;
+      postsWithEngagement.sort((a, b) => b.engagementScore - a.engagementScore || new Date(b.created_at) - new Date(a.created_at));
+      return postsWithEngagement.length > 0 ? postsWithEngagement[0] : null;
     } catch (error) {
       console.error('Error fetching hot post:', error);
       return null;
     }
   };
 
-  const pulseStreak = () => {
-    streakScale.value = withSpring(1.2, { damping: 2 });
-    setTimeout(() => streakScale.value = withSpring(1), 300);
+  const loadCachedPosts = async () => {
+    try {
+      const cachedData = await AsyncStorage.getItem(POSTS_CACHE_KEY);
+      if (cachedData) {
+        const { posts: cachedPosts, timestamp } = JSON.parse(cachedData);
+        const now = Date.now();
+        
+        if (now - timestamp < POSTS_CACHE_EXPIRY) {
+          console.log('Loading posts from cache');
+          if (isMounted.current) {
+            setPosts(cachedPosts);
+            setFilteredPosts(cachedPosts);
+            setLoading(false);
+          }
+          return true;
+        }
+      }
+      return false;
+    } catch (error) {
+      console.error('Error loading cached posts:', error);
+      return false;
+    }
+  };
+
+  const cachePosts = async (postsToCache) => {
+    try {
+      const cacheData = {
+        posts: postsToCache,
+        timestamp: Date.now()
+      };
+      await AsyncStorage.setItem(POSTS_CACHE_KEY, JSON.stringify(cacheData));
+    } catch (error) {
+      console.error('Error caching posts:', error);
+    }
+  };
+
+  const fetchPosts = async (shouldRefresh = false) => {
+    try {
+      const now = Date.now();
+      if (!shouldRefresh && now - lastFetchTime.current < POSTS_CACHE_EXPIRY) {
+        console.log('Using existing posts, cache still valid');
+        return;
+      }
+
+      if (!shouldRefresh) {
+        const hasCachedPosts = await loadCachedPosts();
+        if (hasCachedPosts) {
+          return;
+        }
+      }
+
+      console.log('Fetching fresh posts from server');
+      const { data: postsData, error } = await supabase
+        .from('posts')
+        .select(`
+          *,
+          users!posts_user_id_fkey (
+            full_name,
+            username,
+            profile_image
+          ),
+          likes (
+            id,
+            user_id
+          ),
+          comments (
+            id
+          )
+        `)
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        console.error('Error fetching posts:', error);
+        return;
+      }
+
+      if (!isMounted.current) return;
+
+      const transformedPosts = postsData?.map(post => ({
+        ...post,
+        userName: post.users?.full_name || post.user_name || 'Anonymous',
+        userAvatar: post.users?.profile_image || post.user_avatar || null,
+        likesCount: post.likes?.length || 0,
+        commentsCount: post.comments?.length || 0,
+        isLiked: post.likes?.some(like => like.user_id === user?.uid) || false,
+      })) || [];
+
+      setPosts(transformedPosts);
+      setFilteredPosts(transformedPosts);
+      lastFetchTime.current = now;
+      await cachePosts(transformedPosts);
+    } catch (error) {
+      console.error('Error in fetchPosts:', error);
+    } finally {
+      if (isMounted.current) {
+        setLoading(false);
+        setRefreshing(false);
+      }
+    }
+  };
+
+  // Initial load
+  useEffect(() => {
+    fetchPosts();
+  }, [user]);
+
+  const getHotPost = async () => {
+    const post = await fetchHotPosts();
+    if (isMounted.current) {
+      setHotPost(post);
+    }
+  };
+
+// console.log("user",user)
+  const updateCarouselWithHotPost = (post) => {
+    if (post) {
+      const hotPostItem = {
+        id: 'hot_post',
+        type: 'hot_post',
+        ...post,
+      };
+      if (isMounted.current) {
+        setCarouselItems([hotPostItem, ...baseCarouselItems]);
+      }
+    } else {
+      if (isMounted.current) {
+    setCarouselItems(baseCarouselItems);
+      }
+        }
   };
 
   useEffect(() => {
-    console.log("useEffect",user)
-    if (!user?.college?.id) return;
-    console.log("1")
-    setLoading(true);
-    const postsRef = collection(db, 'posts');
-    console.log("1")
-    const q = query(postsRef, orderBy('createdAt', 'desc'));
-    console.log("2")
-
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const newPosts = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
-      setPosts(newPosts);
-      // console.log("posts",newPosts)
-      setFilteredPosts(newPosts);
-      setLoading(false);
-    }, (error) => {
-      console.error("Error fetching posts:", error);
-      setLoading(false);
+    InteractionManager.runAfterInteractions(() => {
+      getHotPost();
     });
-    return unsubscribe;
-  }, [user?.college?.id]);
-
-
+  }, []);
 
   useEffect(() => {
-    if (!user?.college?.id) return;
-    const getHotPost = async () => {
-      const hotPostData = await fetchHotPosts();
-      setHotPost(hotPostData);
-      setCarouselItems(hotPostData ? [{ id: 'hot-post', title: "Hot Post of the Day", post: hotPostData, type: "hot-post" }, ...baseCarouselItems] : baseCarouselItems);
-    };
-    getHotPost();
-  }, [user?.college?.id]);
-
-  useEffect(() => {
-    if (!user?.uid) return;
-    const loadUserStreak = async () => {
-      const streakData = await getUserStreak(user.uid);
-      setUserStreak(streakData);
-      if (streakData && streakData.currentStreak > 0 && streakData.streakActive) pulseStreak();
-    };
-    loadUserStreak();
-  }, [user?.uid]);
-
-  useEffect(() => {
-    if (streakUpdated && user?.uid) {
-      const updateStreakDisplay = async () => {
-        const streakData = await getUserStreak(user.uid);
-        setUserStreak(streakData);
-        if (streakData && streakData.currentStreak > 0 && streakData.streakActive) {
-          pulseStreak();
-          confettiRef.current?.start();
-        }
-        setStreakUpdated(false);
-      };
-      updateStreakDisplay();
-    }
-  }, [streakUpdated, user?.uid]);
+    updateCarouselWithHotPost(hotPost);
+  }, [hotPost]);
 
   useEffect(() => {
     if (searchQuery.trim() === '') {
@@ -238,34 +321,32 @@ export default function EnhancedHome() {
     }
   }, [searchQuery, posts]);
 
-  const handleScroll = (event) => {
+  const handleScroll = useCallback((event) => {
     const offsetY = event.nativeEvent.contentOffset.y;
     scrollY.setValue(offsetY);
     setShowFullButton(offsetY <= 40);
-  };
+  }, [scrollY]);
 
-  const navigateToProfile = () => router.push('(root)/profile');
-
-  const handleRefresh = async () => {
+  const handleRefresh = useCallback(() => {
     setRefreshing(true);
-    if (user?.uid) {
-      const streakData = await getUserStreak(user.uid);
-      setUserStreak(streakData);
-      const hotPostData = await fetchHotPosts();
-      setHotPost(hotPostData);
-      setCarouselItems(hotPostData ? [{ id: 'hot-post', title: "Hot Post of the Day", post: hotPostData, type: "hot-post" }, ...baseCarouselItems] : baseCarouselItems);
-    }
-    setTimeout(() => setRefreshing(false), 1000);
-  };
+    fetchPosts(true);
+  }, []);
 
-  const handlePostCreated = async (streakData) => {
-    if (streakData && !streakData.streakActive) {
-      setStreakUpdated(true);
-      setShowStreakModal(true);
-      setTimeout(() => setShowStreakModal(false), 3000);
-    }
+  // Handle modal visibility with proper cleanup
+  const handleShowModal = useCallback(() => {
+    setIsModalVisible(true);
+  }, []);
+
+  const handleCloseModal = useCallback(() => {
     setIsModalVisible(false);
-  };
+  }, []);
+
+  const handlePostCreated = useCallback(async (postData) => {
+    setIsModalVisible(false);
+    
+    // Refresh posts list
+    handleRefresh();
+  }, [handleRefresh]);
 
   const renderHotPostMetadata = (post) => {
     if (!post) return null;
@@ -275,8 +356,8 @@ export default function EnhancedHome() {
       <View className="flex-row items-center">
         <Image source={{ uri: post.userPhotoURL || 'https://via.placeholder.com/40' }} className="w-8 h-8 rounded-full mr-2" style={{ borderWidth: 1, borderColor: colors.accent }} />
         <View>
-          <Text style={{ color: colors.text, fontWeight: '600', fontSize: 14 }}>{post.userName || 'Anonymous'}</Text>
-          <Text style={{ color: colors.secondaryText, fontSize: 10 }}>{formattedTime}</Text>
+          <AppText style={{ color: colors.text, fontWeight: '600', fontSize: 14 }}>{post.userName || 'Anonymous'}</AppText>
+          <AppText style={{ color: colors.secondaryText, fontSize: 10 }}>{formattedTime}</AppText>
         </View>
       </View>
       </TouchableOpacity>
@@ -284,11 +365,7 @@ export default function EnhancedHome() {
     );
   };
 
-  // const handleNavigateToDetail = (post) => {
-  //   if (post?.id) router.push({ pathname: 'postDetailView', params: { postId: post.id } });
-  // };
-
-  const renderCarouselItem = ({ item, index }) => {
+  const renderCarouselItem = useCallback(({ item, index }) => {
     // Different gradient colors for each carousel item that blend with black theme
     const gradientColors = [
       ['rgba(139, 92, 246, 0.3)', 'rgba(59, 130, 246, 0.3)'], // Purple to Blue
@@ -301,52 +378,67 @@ export default function EnhancedHome() {
     const mainText = item.title?.toUpperCase() || "LEADERBOARD CYCLE";
     const subText = item.text || "Cycle 1 is over! Did you win?";
 
+    const handleCarouselPress = async () => {
+      if (item.path) {
+        await safeNavigate(`/(root)/(tabs)/${item.path}`, { push: true });
+      } else if (item.type === "hot-post" && item.post) {
+        await safeNavigate(`/postDetailView/${item.post.id}`, { push: true });
+      }
+    };
+
     return (
-      <LinearGradient
-        colors={currentColors}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
-        style={{
-          width: width * 0.92,
-          height: 140,
-          borderRadius: 20,
-          marginHorizontal: width * 0.04,
-          justifyContent: 'center',
-          alignItems: 'center',
-          overflow: 'hidden',
-          borderWidth: 1,
-          borderColor: 'rgba(255, 255, 255, 0.1)',
-        }}
-      >
-        <Text
+      <TouchableOpacity onPress={handleCarouselPress} activeOpacity={0.8}>
+        <LinearGradient
+          colors={currentColors}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
           style={{
-            color: '#fff',
-            fontSize: 24,
-            fontWeight: '700',
-            letterSpacing: 0.5,
-            textAlign: 'center',
-            textShadowColor: 'rgba(0, 0, 0, 0.3)',
-            textShadowOffset: { width: 0, height: 1 },
-            textShadowRadius: 2,
+            width: width * 0.96,
+            height: 140,
+            borderRadius: 20,
+            marginHorizontal: width * 0.02,
+            justifyContent: 'center',
+            alignItems: 'center',
+            overflow: 'hidden',
+            borderWidth: 1,
+            borderColor: 'rgba(255, 255, 255, 0.1)',
+            elevation: 4,
+            shadowColor: '#000',
+            shadowOffset: { width: 0, height: 2 },
+            shadowOpacity: 0.25,
+            shadowRadius: 8,
           }}
         >
-          {mainText}
-        </Text>
-        <Text
-          style={{
-            color: 'rgba(255, 255, 255, 0.9)',
-            fontSize: 14,
-            fontWeight: '500',
-            marginTop: 6,
-            textAlign: 'center',
-            opacity: 0.8,
-          }}
-        >
-          {subText}
-        </Text>
-      </LinearGradient>
+          <AppText
+            style={{
+              color: '#fff',
+              fontSize: 26,
+              fontWeight: '700',
+              letterSpacing: 0.5,
+              textAlign: 'center',
+              textShadowColor: 'rgba(0, 0, 0, 0.4)',
+              textShadowOffset: { width: 0, height: 2 },
+              textShadowRadius: 4,
+            }}
+          >
+            {mainText}
+          </AppText>
+          <AppText
+            style={{
+              color: 'rgba(255, 255, 255, 0.95)',
+              fontSize: 15,
+              fontWeight: '500',
+              marginTop: 8,
+              textAlign: 'center',
+              opacity: 0.9,
+            }}
+          >
+            {subText}
+          </AppText>
+        </LinearGradient>
+      </TouchableOpacity>
     );
-  };
+  }, [safeNavigate, width, colors]);
 
   const toggleSearch = () => {
     setIsSearchExpanded(!isSearchExpanded);
@@ -373,96 +465,92 @@ export default function EnhancedHome() {
     ]
   }));
 
-  const Header = () => (
+  const Header = useCallback(() => (
     <View style={{ 
-      paddingTop: Platform.OS === 'ios' ? 50 : 40, 
-      paddingHorizontal: 20, 
-      paddingBottom: 16, 
-      backgroundColor: colors.background 
+      paddingTop: Platform.OS === 'ios' ? 16 : 12,
+      paddingHorizontal: 16,
+      paddingBottom: 12,
+      backgroundColor: colors.background,
+      borderBottomWidth: Platform.OS === 'android' ? 0.5 : 0,
+      borderBottomColor: colors.border,
     }}>
       <View style={{ 
         flexDirection: 'row', 
         alignItems: 'center', 
         justifyContent: 'space-between',
-        marginBottom: 12,
+        minHeight: 44,
       }}>
         {/* Left Section - App Name and Streak */}
-        <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
-          <Text style={{ 
+        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+          <AppText style={{ 
             color: colors.text, 
-            fontSize: 28, 
+            fontSize: 22,
             fontWeight: '800',
-            marginRight: 16,
+            marginRight: 12,
           }}>
             Kliq
-          </Text>
-          {userStreak && (
-            <TouchableOpacity
-              style={{ 
-                flexDirection: 'row',
-                alignItems: 'center',
-                backgroundColor: colors.cardBg,
-                paddingHorizontal: 12,
-                paddingVertical: 8,
-                borderRadius: 20,
-                borderWidth: 1,
-                borderColor: userStreak.streakActive ? '#F97316' : colors.border
-              }}
-            >
-              <MaterialCommunityIcons 
-                name="fire" 
-                size={18} 
-                color={userStreak.streakActive ? "#F97316" : colors.accent} 
-              />
-              <Text 
-                style={{ 
-                  color: userStreak.streakActive ? '#F97316' : colors.accent,
-                  fontWeight: '700',
-                  fontSize: 14,
-                  marginLeft: 6
-                }}
-              >
-                {userStreak.currentStreak}
+          </AppText>
+           {/* Streak Icon */}
+           <TouchableOpacity onPress={() => router.push('/streak')} style={{ flexDirection: 'row', alignItems: 'center' }}>
+            <MaterialCommunityIcons name="fire" size={24} color={COLORS.accent} />
+            {/* {user?.streak?.[0]?.streak_count >=0 && ( */}
+              <Text style={{ color: colors.accent, marginLeft: 4, fontWeight: 'bold' }}>
+                {user.streak.current_streak}
               </Text>
-            </TouchableOpacity>
-          )}
+            {/* )} */}
+           </TouchableOpacity>
         </View>
 
         {/* Right Section - Search and Profile */}
-        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, justifyContent: 'flex-end' }}>
           <TouchableOpacity 
-            onPress={toggleSearch}
+            onPress={async () => {
+              try {
+                await safeNavigate('/(root)/search', { push: true });
+              } catch (error) {
+                console.error('Search navigation error:', error);
+                router.push('/(root)/search');
+              }
+            }}
             style={{
-              width: 44,
-              height: 44,
-              borderRadius: 22,
+              flex: 1,
+              maxWidth: 140,
+              height: 36,
+              borderRadius: 18,
               alignItems: 'center',
               justifyContent: 'center',
-              backgroundColor: colors.accent,
-              marginRight: 12,
-              elevation: 3,
-              shadowColor: colors.accent,
-              shadowOffset: { width: 0, height: 2 },
-              shadowOpacity: 0.3,
-              shadowRadius: 4,
+              backgroundColor: theme === 'dark' ? 'rgba(255, 255, 255, 0.12)' : 'rgba(0, 0, 0, 0.08)',
+              marginHorizontal: 12,
+              borderWidth: 1.5,
+              borderColor: theme === 'dark' ? 'rgba(255, 255, 255, 0.4)' : 'rgba(0, 0, 0, 0.2)',
             }}
           >
-            <Ionicons name="search" size={22} color="#FFF" />
+            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+              <Ionicons name="search" size={16} color={colors.text} />
+              <AppText style={{ 
+                color: colors.text, 
+                marginLeft: 6, 
+                fontSize: 13, 
+                fontWeight: '500' 
+              }}>
+                Search
+              </AppText>
+            </View>
           </TouchableOpacity>
 
           <TouchableOpacity 
-            onPress={navigateToProfile}
+            onPress={() => safeNavigate('/(root)/profile')}
             style={{
-              width: 44,
-              height: 44,
-              borderRadius: 22,
+              width: 42,
+              height: 42,
+              borderRadius: 21,
               overflow: 'hidden',
               borderWidth: 2,
               borderColor: colors.accent
             }}
           >
             <Image 
-              source={{ uri: user?.photoURL || 'https://via.placeholder.com/40' }} 
+              source={{ uri: user?.profileImage || user?.photoURL || 'https://via.placeholder.com/40' }} 
               style={{ width: '100%', height: '100%' }}
               resizeMode="cover"
             />
@@ -470,189 +558,92 @@ export default function EnhancedHome() {
         </View>
       </View>
     </View>
-  );
+  ), [colors, theme, safeNavigate, user]);
 
-  const StreakDisplay = () => {
-    if (!userStreak) return null;
-    const isStreakActiveToday = userStreak.streakActive || false;
-    return (
-      <Animated.View
-        className="flex-row items-center rounded-full px-2 py-1 z-2000"
-        style={[streakAnimatedStyle, { backgroundColor: colors.cardBg, borderWidth: 1, borderColor: isStreakActiveToday ? '#F97316' : colors.border }]}
-      >
-        <MaterialCommunityIcons name="fire" size={16} color={isStreakActiveToday ? "#F97316" : colors.accent} />
-        <Text style={{ color: isStreakActiveToday ? '#F97316' : colors.accent, fontWeight: '600', fontSize: 12, marginLeft: 4 }}>
-          {userStreak.currentStreak} day{userStreak.currentStreak !== 1 ? 's' : ''}
-        </Text>
-      </Animated.View>
-    );
-  };
-
-  const StreakModal = () => (
-    <Modal transparent={true} visible={showStreakModal} animationType="fade">
-      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.7)', zIndex: 2000 }}>
-        <View
-          className="rounded-2xl p-6 w-4/5"
-          style={{
-            backgroundColor: colors.cardBg,
-            borderWidth: 1,
-            borderColor: colors.accent,
-            elevation: 10,
-            shadowColor: colors.accent,
-            shadowOffset: { width: 0, height: 4 },
-            shadowOpacity: 0.4,
-            shadowRadius: 8,
-          }}
-        >
-          <View className="items-center">
-            <LinearGradient
-              colors={['#F97316', '#F59E0B']}
-              className="w-16 h-16 rounded-full items-center justify-center mb-4"
-            >
-              <MaterialCommunityIcons name="fire" size={32} color="#FFF" />
-            </LinearGradient>
-            <Text style={{ color: colors.text, fontSize: 20, fontWeight: '700' }}>Streak Milestone!</Text>
-            <Text style={{ color: colors.accent, fontSize: 28, fontWeight: '800', marginVertical: 8 }}>
-              🔥 {userStreak?.currentStreak || 0} Days 🔥
-            </Text>
-            <Text style={{ color: colors.secondaryText, fontSize: 14, textAlign: 'center' }}>
-              Keep the momentum going! Post daily to maintain your streak.
-            </Text>
+  const renderCarousel = useCallback(() => (
+        <View style={{ marginVertical: 16 }}>
+          <Carousel
+            width={width * 0.98}
+            height={160}
+            data={carouselItems}
+            renderItem={renderCarouselItem}
+            mode="parallax"
+            modeConfig={{ parallaxScrollingScale: 0.94, parallaxScrollingOffset: 35 }}
+            loop
+            autoPlay
+            autoPlayInterval={8000}
+            onProgressChange={(_, absoluteProgress) => setActiveCarouselIndex(Math.round(absoluteProgress))}
+            scrollAnimationDuration={500}
+          />
+          
+          {/* Dots at bottom */}
+          <View style={{
+            flexDirection: 'row',
+            justifyContent: 'center',
+            marginTop: 12,
+            paddingHorizontal: 16,
+          }}>
+            {carouselItems.map((_, index) => (
+              <View 
+                key={`indicator-${index}`} 
+                style={{
+                  width: 8,
+                  height: 8,
+                  borderRadius: 4,
+                  backgroundColor: index === activeCarouselIndex ? colors.accent : 'rgba(255, 255, 255, 0.3)',
+                  marginHorizontal: 4,
+                }} 
+              />
+            ))}
           </View>
-          <TouchableOpacity
-            className="mt-6 bg-accent rounded-lg py-2"
-            onPress={() => setShowStreakModal(false)}
-            style={{ backgroundColor: colors.accent }}
-          >
-            <Text style={{ color: '#FFF', textAlign: 'center', fontWeight: '600', fontSize: 16 }}>Got It</Text>
-          </TouchableOpacity>
         </View>
-      </View>
-    </Modal>
-  );
+  ), [carouselItems, activeCarouselIndex, colors.accent]);
 
-  const renderEmptyState = () => (
-    <TouchableOpacity>
-    <View className="flex-1 justify-center items-center py-20">
-      <Image source={{ uri: 'https://images.unsplash.com/photo-1507525428034-b723cf961d3e' }} className="w-32 h-32 rounded-full mb-4" />
-      <Text style={{ color: colors.text, fontSize: 16, fontWeight: '600' }}>"Be the first to spark a conversation!"</Text>
-      <Text style={{ color: colors.secondaryText, fontSize: 12, marginTop: 4 }}>Add your first post now.</Text>
-    </View>
-    </TouchableOpacity>
-  );
-
-  const renderFooter = () => filteredPosts.length > 0 ? (
-    <View className="py-6 items-center">
-      <Image source={{ uri: 'https://images.unsplash.com/photo-1506748686214-e9df14d4d9d0' }} className="w-24 h-24 rounded-4 mb-2" />
-      <Text style={{ color: colors.secondaryText, fontSize: 14 }}>You've reached the end!</Text>
-    </View>
-  ) : null;
-
-  useEffect(() => {
-    // Fade in animation for the card
-    cardOpacity.value = withTiming(1, { duration: 500 });
-  }, []);
-
-  const shareButtonAnimatedStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: shareButtonScale.value }]
-  }));
-
-  const cardAnimatedStyle = useAnimatedStyle(() => ({
-    opacity: cardOpacity.value
-  }));
-
-  const handleSharePress = () => {
-    shareButtonScale.value = withSpring(0.95, {}, () => {
-      shareButtonScale.value = withSpring(1);
-    });
-    setIsModalVisible(true);
-  };
-
-  const PostInput = () => (
-    <Animated.View 
-      style={[
-        {
-          backgroundColor: colors.cardBg,
-          marginHorizontal: 16,
-          marginVertical: 16,
-          borderRadius: 20,
-          elevation: 4,
-          shadowColor: colors.accent,
-          shadowOffset: { width: 0, height: 2 },
-          shadowOpacity: 0.1,
-          shadowRadius: 8,
-          borderWidth: 1,
-          borderColor: 'rgba(255, 255, 255, 0.1)',
-        },
-        cardAnimatedStyle
-      ]}
-    >
-      {/* Main Input Row */}
-      <TouchableOpacity 
+  const renderHeader = useCallback(() => (
+    <View style={{ paddingTop: 10 }}>
+      <TouchableOpacity
+        onPress={() => router.push('/createpost')}
         style={{
           flexDirection: 'row',
           alignItems: 'center',
-          padding: 16,
-          borderBottomWidth: 1,
-          borderBottomColor: 'rgba(255, 255, 255, 0.1)',
+          backgroundColor: colors.cardBg,
+          paddingHorizontal: 15,
+          paddingVertical: 12,
+          borderRadius: 25,
+          marginHorizontal: 15,
+          marginBottom: 16,
+          borderWidth: 1,
+          borderColor: colors.border
         }}
-        onPress={() => setIsModalVisible(true)}
       >
-        <Image 
-          source={{ uri: user?.photoURL || 'https://via.placeholder.com/40' }}
-          style={{
-            width: 40,
-            height: 40,
-            borderRadius: 20,
-            borderWidth: 2,
-            borderColor: colors.accent
-          }}
+        <Image
+          source={{ uri: user?.profileImage || user?.photoURL || 'https://via.placeholder.com/40' }}
+          style={{ width: 40, height: 40, borderRadius: 20, marginRight: 12 }}
         />
-        <View style={{ flex: 1, marginLeft: 16 }}>
-          <Text style={{ 
-            color: colors.secondaryText, 
-            fontSize: 16,
-            fontWeight: '500'
-          }}>
-            What's happening?
-          </Text>
-        </View>
-        <TouchableOpacity
-          onPress={() => setIsModalVisible(true)}
-          // style={{
-          //   backgroundColor: colors.accent,
-          //   paddingHorizontal: 20,
-          //   paddingVertical: 10,
-          //   borderRadius: 20,
-          // }}
-        >
-          {/* <Text style={{ 
-            color: '#FFF', 
-            fontWeight: '700', 
-            fontSize: 14 
-          }}>
-            Post
-          </Text> */}
-           <TouchableOpacity 
-            style={{
-              width: 36,
-              height: 36,
-              alignItems: 'center',
-              justifyContent: 'center',
-              borderRadius: 18,
-              backgroundColor: `${colors.accent}15`,
-              marginRight: 16,
-            }}
-            onPress={() => setIsModalVisible(true)}
-          >
-            <Ionicons name="image-outline" size={20} color={colors.accent} />
-          </TouchableOpacity>
-        </TouchableOpacity>
+        <Text style={{ color: colors.secondaryText, fontSize: 16 }}>What's happening?</Text>
+        <View style={{ flex: 1 }} />
+        <Ionicons name="images-outline" size={24} color={colors.accent} />
       </TouchableOpacity>
+      {renderCarousel()}
+    </View>
+  ), [renderCarousel, user, colors]);
 
-   
-    </Animated.View>
-  );
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    await fetchPosts(true);
+    setRefreshing(false);
+  }, []);
+
+  const getItemLayout = useCallback((data, index) => {
+    const ITEM_HEIGHT = 200; // Approximate height of a post card
+    return {
+      length: ITEM_HEIGHT,
+      offset: ITEM_HEIGHT * index,
+      index,
+    };
+  }, []);
+
+  const memoizedPosts = useMemo(() => filteredPosts, [filteredPosts]);
 
   if (loading === 0) {
     console.log('nothing')
@@ -664,573 +655,74 @@ export default function EnhancedHome() {
   }
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: 'black' }}>
-      <StatusBar barStyle={theme === 'dark' ? 'light-content' : 'dark-content'} backgroundColor={colors.background} />
-      
-      {/* Sticky Header */}
-      <Header />
+    <SafeViewErrorBoundary>
+      <SafeAreaView style={{ flex: 1, backgroundColor: 'black' }}>
+        <StatusBar barStyle={theme === 'dark' ? 'light-content' : 'dark-content'} backgroundColor={colors.background} />
+        
+        {/* Sticky Header */}
+        <Header />
 
-      <FlatList
-        data={filteredPosts}
-        renderItem={({ item }) => <PostCard post={item} />}
-        keyExtractor={item => item.id}
-        ListHeaderComponent={
-          <>
-            {/* Post Input */}
-            <PostInput />
-            
-            {/* Carousel with dots on top */}
-            {carouselItems.length > 0 && (
-              <View style={{ marginVertical: 16 }}>
-                {/* Dots on top */}
-                <View style={{
-                  flexDirection: 'row',
-                  justifyContent: 'center',
-                  marginBottom: 12,
-                  paddingHorizontal: 20,
-                }}>
-                  {carouselItems.map((_, index) => (
-                    <View 
-                      key={`indicator-${index}`} 
-                      style={{
-                        width: 8,
-                        height: 8,
-                        borderRadius: 4,
-                        backgroundColor: index === activeCarouselIndex ? colors.accent : 'rgba(255, 255, 255, 0.3)',
-                        marginHorizontal: 4,
-                      }} 
-                    />
-                  ))}
-                </View>
-                
-                <Carousel
-                  width={SLIDER_WIDTH}
-                  height={160}
-                  data={carouselItems}
-                  renderItem={renderCarouselItem}
-                  mode="parallax"
-                  modeConfig={{ parallaxScrollingScale: 0.95, parallaxScrollingOffset: 30 }}
-                  loop
-                  autoPlay
-                  autoPlayInterval={5000}
-                  onProgressChange={(_, absoluteProgress) => setActiveCarouselIndex(Math.round(absoluteProgress))}
-                  scrollAnimationDuration={1000}
-                />
-              </View>
-            )}
-          </>
-        }
-        ListEmptyComponent={renderEmptyState}
-        ListFooterComponent={renderFooter}
-        onScroll={handleScroll}
-        scrollEventThrottle={16}
-        refreshing={refreshing}
-        onRefresh={handleRefresh}
-        contentContainerStyle={{ paddingBottom: 80 }}
-      />
-
-      {isModalVisible && (
-        <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 1000 }}>
-          <CreatePostScreen visible={isModalVisible} onClose={() => setIsModalVisible(false)} onPostCreated={handlePostCreated} user={user} />
-        </View>
-      )}
-
-      <StreakModal />
-      <ConfettiCannon ref={confettiRef} count={50} origin={{ x: width / 2, y: 0 }} autoStart={false} fadeOut={true} colors={['#8B5CF6', '#F97316', '#F59E0B', '#10B981']} />
-    </SafeAreaView>
+        {isSearchExpanded && (
+          <Animated.View style={[searchBarAnimatedStyle, { paddingHorizontal: 15, marginBottom: 10 }]}>
+            <TextInput
+              style={{
+                backgroundColor: colors.cardBg,
+                color: colors.text,
+                borderRadius: 10,
+                padding: 10,
+                fontSize: 16,
+              }}
+              placeholder="Search posts..."
+              placeholderTextColor={colors.secondaryText}
+              value={searchQuery}
+              onChangeText={setSearchQuery}
+            />
+          </Animated.View>
+        )}
+        
+        {loading && posts.length === 0 ? (
+          <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+            <ActivityIndicator size="large" color={COLORS.accent} />
+          </View>
+        ) : (
+        <FlatList
+            data={memoizedPosts}
+            renderItem={({ item }) => <PostCard post={item} />}
+            keyExtractor={(item) => item.id.toString()}
+            ListHeaderComponent={renderHeader}
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={{ paddingBottom: 60 }}
+          onScroll={handleScroll}
+            refreshControl={
+              <RefreshControl
+          refreshing={refreshing}
+                onRefresh={onRefresh}
+                tintColor={colors.text}
+              />
+            }
+          // Performance optimizations
+            initialNumToRender={5}
+            maxToRenderPerBatch={10}
+            windowSize={11}
+          getItemLayout={getItemLayout}
+          />
+        )}
+        
+        <Modal
+          animationType="slide"
+          transparent={false}
+          visible={isModalVisible}
+          onRequestClose={() => setIsModalVisible(false)}
+        >
+          <CreatePostScreen
+            onClose={() => setIsModalVisible(false)}
+            onPostCreated={(newPost) => {
+              setPosts(prevPosts => [newPost, ...prevPosts]);
+              setFilteredPosts(prevPosts => [newPost, ...prevPosts]);
+          }}
+        />
+        </Modal>
+      </SafeAreaView>
+    </SafeViewErrorBoundary>
   );
 }
-
-// export default EnhancedHome;  
-
-// import React, { useState, useEffect, useRef } from 'react';
-// import {
-//   View,
-//   Text,
-//   TouchableOpacity,
-//   SafeAreaView,
-//   Image,
-//   StatusBar,
-//   Dimensions,
-//   Animated,
-//   TextInput,
-//   StyleSheet,
-//   Modal,
-//   Appearance,
-//   FlatList,
-//   Platform,
-// } from 'react-native';
-// import { Ionicons, FontAwesome, MaterialCommunityIcons } from '@expo/vector-icons';
-// import { collection, query, orderBy, onSnapshot, where, getCountFromServer, getDocs } from 'firebase/firestore';
-// import ConfettiCannon from 'react-native-confetti';
-// import { useSharedValue, useAnimatedStyle, withSpring } from 'react-native-reanimated';
-// import { LinearGradient } from 'expo-linear-gradient';
-// import Carousel from 'react-native-reanimated-carousel';
-// import { db, auth } from '../../../config/firebaseConfig';
-// import PostCard from '../../../components/PostCard';
-// import { useAuth } from '../../../context/authContext';
-// import CreatePostScreen from '../../../components/CreatePost';
-// import { router } from 'expo-router';
-// import { getUserStreak } from '../../../(apis)/streaks';
-
-// const { width, height } = Dimensions.get('window');
-// const SLIDER_WIDTH = width;
-// const ITEM_WIDTH = SLIDER_WIDTH * 0.95;
-
-// export default function EnhancedHome() {
-//   const [posts, setPosts] = useState([]);
-//   const [filteredPosts, setFilteredPosts] = useState([]);
-//   const [loading, setLoading] = useState(true);
-//   const [refreshing, setRefreshing] = useState(false);
-//   const [isModalVisible, setIsModalVisible] = useState(false);
-//   const [hotPost, setHotPost] = useState(null);
-//   const [userStreak, setUserStreak] = useState(null);
-//   const [searchQuery, setSearchQuery] = useState('');
-//   const [activeCarouselIndex, setActiveCarouselIndex] = useState(0);
-//   const [showFullButton, setShowFullButton] = useState(true);
-//   const [showStreakModal, setShowStreakModal] = useState(false);
-//   const [carouselItems, setCarouselItems] = useState([]);
-//   const { user } = useAuth();
-//   const confettiRef = useRef(null);
-//   const streakScale = useSharedValue(1);
-//   const scrollY = useRef(new Animated.Value(0)).current;
-//   const [streakUpdated, setStreakUpdated] = useState(false);
-//   const [theme, setTheme] = useState(Appearance.getColorScheme() || 'dark');
-
-//   useEffect(() => {
-//     const subscription = Appearance.addChangeListener(({ colorScheme }) => setTheme(colorScheme));
-//     return () => subscription.remove();
-//   }, []);
-
-//   const colors = {
-//     background: theme === 'dark' ? '#000000' : '#FFFFFF',
-//     text: theme === 'dark' ? '#FFFFFF' : '#1F1F1F',
-//     cardBg: theme === 'dark' ? '#121212' : '#F5F5F5',
-//     accent: '#8B5CF6',
-//     secondaryText: theme === 'dark' ? '#9E9E9E' : '#6B7280',
-//     border: theme === 'dark' ? '#333333' : '#E5E7EB',
-//   };
-
-//   const baseCarouselItems = [
-//     { id: 1, title: "ChatWithFriends", text: "Learn to code with peers", path: "chat", image: "https://images.unsplash.com/photo-1517694712202-14dd9538aa97", type: "info" },
-//     { id: 2, title: "Join in groups", text: "Prepare for interviews", path: "groups", image: "https://images.unsplash.com/photo-1522202176988-66273c2fd55f", type: "info" },
-//     { id: 3, title: "Connect", text: "Connect with peers, friends and mentors", path: "connect", image: "https://images.unsplash.com/photo-1531403009284-440f080d1e12", type: "info" },
-//   ];
-
-//   const streakAnimatedStyle = useAnimatedStyle(() => ({ transform: [{ scale: streakScale.value }] }));
-
-//   const fetchHotPosts = async () => {
-//     try {
-//       const postsCountSnapshot = await getCountFromServer(query(collection(db, 'posts')));
-//       if (postsCountSnapshot.data().count < 1) return null;
-
-//       const today = new Date();
-//       today.setHours(0, 0, 0, 0);
-//       const yesterday = new Date(today);
-//       yesterday.setDate(yesterday.getDate() - 1);
-
-//       const hotPostsQuery = query(collection(db, 'posts'), where('createdAt', '>=', yesterday), where('createdAt', '<', today));
-//       const hotPostsSnapshot = await getDocs(hotPostsQuery);
-//       if (hotPostsSnapshot.empty) return null;
-
-//       const posts = hotPostsSnapshot.docs.map(doc => ({
-//         id: doc.id,
-//         ...doc.data(),
-//         engagementScore: (Array.isArray(doc.data().likes) ? doc.data().likes.length : 0) + (Array.isArray(doc.data().comments) ? doc.data().comments.length : 0),
-//       }));
-
-//       posts.sort((a, b) => b.engagementScore - a.engagementScore || b.createdAt.toDate() - a.createdAt.toDate());
-//       return posts.length > 0 ? posts[0] : null;
-//     } catch (error) {
-//       console.error('Error fetching hot post:', error);
-//       return null;
-//     }
-//   };
-
-//   const pulseStreak = () => {
-//     streakScale.value = withSpring(1.2, { damping: 2 });
-//     setTimeout(() => streakScale.value = withSpring(1), 300);
-//   };
-
-//   useEffect(() => {
-//     if (!user?.college?.id) return;
-//     setLoading(true);
-//     const postsRef = collection(db, 'posts');
-//     const q = query(postsRef, orderBy('createdAt', 'desc'));
-//     const unsubscribe = onSnapshot(q, (snapshot) => {
-//       const newPosts = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
-//       setPosts(newPosts);
-//       setFilteredPosts(newPosts);
-//       setLoading(false);
-//     }, (error) => {
-//       console.error("Error fetching posts:", error);
-//       setLoading(false);
-//     });
-//     return unsubscribe;
-//   }, [user?.college?.id]);
-
-//   useEffect(() => {
-//     if (!user?.college?.id) return;
-//     const getHotPost = async () => {
-//       const hotPostData = await fetchHotPosts();
-//       setHotPost(hotPostData);
-//       setCarouselItems(hotPostData ? [{ id: 'hot-post', title: "Hot Post of the Day", post: hotPostData, type: "hot-post" }, ...baseCarouselItems] : baseCarouselItems);
-//     };
-//     getHotPost();
-//   }, [user?.college?.id]);
-
-//   useEffect(() => {
-//     if (!user?.uid) return;
-//     const loadUserStreak = async () => {
-//       const streakData = await getUserStreak(user.uid);
-//       setUserStreak(streakData);
-//       if (streakData && streakData.currentStreak > 0 && streakData.streakActive) pulseStreak();
-//     };
-//     loadUserStreak();
-//   }, [user?.uid]);
-
-//   useEffect(() => {
-//     if (streakUpdated && user?.uid) {
-//       const updateStreakDisplay = async () => {
-//         const streakData = await getUserStreak(user.uid);
-//         setUserStreak(streakData);
-//         if (streakData && streakData.currentStreak > 0 && streakData.streakActive) {
-//           pulseStreak();
-//           confettiRef.current?.start();
-//         }
-//         setStreakUpdated(false);
-//       };
-//       updateStreakDisplay();
-//     }
-//   }, [streakUpdated, user?.uid]);
-
-//   useEffect(() => {
-//     if (searchQuery.trim() === '') {
-//       setFilteredPosts(posts);
-//     } else {
-//       const queryLower = searchQuery.toLowerCase();
-//       setFilteredPosts(posts.filter(post =>
-//         post.content?.toLowerCase().includes(queryLower) ||
-//         post.userName?.toLowerCase().includes(queryLower) ||
-//         (post.tags && post.tags.some(tag => tag.toLowerCase().includes(queryLower)))
-//       ));
-//     }
-//   }, [searchQuery, posts]);
-
-//   const handleScroll = (event) => {
-//     const offsetY = event.nativeEvent.contentOffset.y;
-//     scrollY.setValue(offsetY);
-//     setShowFullButton(offsetY <= 40);
-//   };
-
-//   const navigateToProfile = () => router.push('(root)/profile');
-
-//   const handleRefresh = async () => {
-//     setRefreshing(true);
-//     if (user?.uid) {
-//       const streakData = await getUserStreak(user.uid);
-//       setUserStreak(streakData);
-//       const hotPostData = await fetchHotPosts();
-//       setHotPost(hotPostData);
-//       setCarouselItems(hotPostData ? [{ id: 'hot-post', title: "Hot Post of the Day", post: hotPostData, type: "hot-post" }, ...baseCarouselItems] : baseCarouselItems);
-//     }
-//     setTimeout(() => setRefreshing(false), 1000);
-//   };
-
-//   const handlePostCreated = async (streakData) => {
-//     if (streakData && !streakData.streakActive) {
-//       setStreakUpdated(true);
-//       setShowStreakModal(true);
-//       setTimeout(() => setShowStreakModal(false), 3000);
-//     }
-//     setIsModalVisible(false);
-//   };
-
-//   const renderHotPostMetadata = (post) => {
-//     if (!post) return null;
-//     const formattedTime = post.createdAt?.toDate().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) || '';
-//     return (
-//       <TouchableOpacity onPress={() => router.push(`/postDetailView/${post.id}`)}>
-//         <View className="flex-row items-center">
-//           <Image source={{ uri: post.userPhotoURL || 'https://via.placeholder.com/40' }} className="w-8 h-8 rounded-full mr-2" style={{ borderWidth: 1, borderColor: colors.accent }} />
-//           <View>
-//             <Text style={{ color: colors.text, fontWeight: '600', fontSize: 14 }}>{post.userName || 'Anonymous'}</Text>
-//             <Text style={{ color: colors.secondaryText, fontSize: 10 }}>{formattedTime}</Text>
-//           </View>
-//         </View>
-//       </TouchableOpacity>
-//     );
-//   };
-
-//   const renderCarouselItem = ({ item }) => {
-//     // Example: use your own text logic here
-//     const mainText = item.title?.toUpperCase() || "LEADERBOARD CYCLE";
-//     const subText = item.text || "Cycle 1 is over! Did you win?";
-
-//     return (
-//       <LinearGradient
-//         colors={['#B621FE', '#1E0066']}
-//         start={{ x: 0, y: 0 }}
-//         end={{ x: 0, y: 1 }}
-//         style={{
-//           width: width * 0.98,
-//           height: 160,
-//           borderRadius: 20,
-//           marginHorizontal: width * 0.01,
-//           justifyContent: 'center',
-//           alignItems: 'center',
-//           overflow: 'hidden',
-//         }}
-//       >
-//         {/* Optional: Grid overlay (skip or use SVG if you want) */}
-//         {/* <GridOverlay /> */}
-
-//         <Text
-//           style={{
-//             color: '#fff',
-//             fontSize: 32,
-//             fontWeight: 'bold',
-//             letterSpacing: 1,
-//             textTransform: 'uppercase',
-//             textAlign: 'center',
-//           }}
-//         >
-//           {mainText}
-//         </Text>
-//         <Text
-//           style={{
-//             color: '#fff',
-//             fontSize: 16,
-//             fontStyle: 'italic',
-//             marginTop: 8,
-//             textAlign: 'center',
-//             opacity: 0.9,
-//           }}
-//         >
-//           {subText}
-//         </Text>
-//       </LinearGradient>
-//     );
-//   };
-
-//   const SearchBar = () => (
-//     <View className="mx-7 mb-4 rounded-lg flex-row items-center px-3 py-2" style={{ backgroundColor: colors.cardBg, borderWidth: 1, borderColor: colors.border }}>
-//       <Ionicons name="search" size={18} color={colors.secondaryText} />
-//       <TextInput
-//         className="flex-1 ml-2 py-1"
-//         style={{ color: colors.text }}
-//         placeholder="Search posts, users, tags..."
-//         placeholderTextColor={colors.secondaryText}
-//         value={searchQuery}
-//         onChangeText={setSearchQuery}
-//       />
-//       {searchQuery.length > 0 && <TouchableOpacity onPress={() => setSearchQuery('')}><Ionicons name="close-circle" size={18} color={colors.secondaryText} /></TouchableOpacity>}
-//     </View>
-//   );
-
-//   const StreakDisplay = () => {
-//     if (!userStreak) return null;
-//     const isStreakActiveToday = userStreak.streakActive || false;
-//     return (
-//       <Animated.View
-//         className="flex-row items-center rounded-full px-2 py-1 z-2000"
-//         style={[streakAnimatedStyle, { backgroundColor: colors.cardBg, borderWidth: 1, borderColor: isStreakActiveToday ? '#F97316' : colors.border }]}
-//       >
-//         <MaterialCommunityIcons name="fire" size={16} color={isStreakActiveToday ? "#F97316" : colors.accent} />
-//         <Text style={{ color: isStreakActiveToday ? '#F97316' : colors.accent, fontWeight: '600', fontSize: 12, marginLeft: 4 }}>
-//           {userStreak.currentStreak} day{userStreak.currentStreak !== 1 ? 's' : ''}
-//         </Text>
-//       </Animated.View>
-//     );
-//   };
-
-//   const StreakModal = () => (
-//     <Modal transparent={true} visible={showStreakModal} animationType="fade">
-//       <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.7)', zIndex: 2000 }}>
-//         <View
-//           className="rounded-2xl p-6 w-4/5"
-//           style={{
-//             backgroundColor: colors.cardBg,
-//             borderWidth: 1,
-//             borderColor: colors.accent,
-//             elevation: 10,
-//             shadowColor: colors.accent,
-//             shadowOffset: { width: 0, height: 4 },
-//             shadowOpacity: 0.4,
-//             shadowRadius: 8,
-//           }}
-//         >
-//           <View className="items-center">
-//             <LinearGradient
-//               colors={['#F97316', '#F59E0B']}
-//               className="w-16 h-16 rounded-full items-center justify-center mb-4"
-//             >
-//               <MaterialCommunityIcons name="fire" size={32} color="#FFF" />
-//             </LinearGradient>
-//             <Text style={{ color: colors.text, fontSize: 20, fontWeight: '700' }}>Streak Milestone!</Text>
-//             <Text style={{ color: colors.accent, fontSize: 28, fontWeight: '800', marginVertical: 8 }}>
-//               🔥 {userStreak?.currentStreak || 0} Days 🔥
-//             </Text>
-//             <Text style={{ color: colors.secondaryText, fontSize: 14, textAlign: 'center' }}>
-//               Keep the momentum going! Post daily to maintain your streak.
-//             </Text>
-//           </View>
-//           <TouchableOpacity
-//             className="mt-6 bg-accent rounded-lg py-2"
-//             onPress={() => setShowStreakModal(false)}
-//             style={{ backgroundColor: colors.accent }}
-//           >
-//             <Text style={{ color: '#FFF', textAlign: 'center', fontWeight: '600', fontSize: 16 }}>Got It</Text>
-//           </TouchableOpacity>
-//         </View>
-//       </View>
-//     </Modal>
-//   );
-
-//   const renderEmptyState = () => (
-//     <TouchableOpacity>
-//       <View className="flex-1 justify-center items-center py-20">
-//         <Image source={{ uri: 'https://images.unsplash.com/photo-1507525428034-b723cf961d3e' }} className="w-32 h-32 rounded-full mb-4" />
-//         <Text style={{ color: colors.text, fontSize: 16, fontWeight: '600' }}>"Be the first to spark a conversation!"</Text>
-//         <Text style={{ color: colors.secondaryText, fontSize: 12, marginTop: 4 }}>Add your first post now.</Text>
-//       </View>
-//     </TouchableOpacity>
-//   );
-
-//   const renderFooter = () => filteredPosts.length > 0 ? (
-//     <View className="py-6 items-center">
-//       <Image source={{ uri: 'https://images.unsplash.com/photo-1506748686214-e9df14d4d9d0' }} className="w-24 h-24 rounded-4 mb-2" />
-//       <Text style={{ color: colors.secondaryText, fontSize: 14 }}>You've reached the end!</Text>
-//     </View>
-//   ) : null;
-
-//   if (loading === 0) {
-//     return (
-//       <SafeAreaView className="flex-1" style={{ backgroundColor: colors.background }}>
-//         <StatusBar barStyle={theme === 'dark' ? 'light-content' : 'dark-content'} backgroundColor={colors.background} />
-//       </SafeAreaView>
-//     );
-//   }
-
-//   // --- GLASSMORPHISM ANIMATION ---
-//   const opacityAnim = useRef(new Animated.Value(0.3)).current;
-
-//   useEffect(() => {
-//     Animated.loop(
-//       Animated.sequence([
-//         Animated.timing(opacityAnim, {
-//           toValue: 0.5,
-//           duration: 3000,
-//           useNativeDriver: true,
-//         }),
-//         Animated.timing(opacityAnim, {
-//           toValue: 0.3,
-//           duration: 3000,
-//           useNativeDriver: true,
-//         }),
-//       ])
-//     ).start();
-//   }, []);
-
-//   // --- MAIN RENDER ---
-//   return (
-//     <SafeAreaView style={{ flex: 1, backgroundColor: 'transparent' }}>
-//       {/* Glassmorphism Animated Background */}
-//       <Animated.View
-//         style={{
-//           ...StyleSheet.absoluteFillObject,
-//           zIndex: -1,
-//           opacity: opacityAnim,
-//         }}
-//       >
-//         <View
-//           style={{
-//             flex: 1,
-//             width,
-//             height,
-//             backgroundColor: theme === 'dark' ? 'rgba(0,0,0,0.3)' : 'rgba(255,255,255,0.3)',
-//           }}
-//         >
-//           <LinearGradient
-//             colors={['rgba(139,92,246,0.15)', 'rgba(0,0,0,0.15)']}
-//             style={{ ...StyleSheet.absoluteFillObject }}
-//           />
-//         </View>
-//       </Animated.View>
-
-//       {/* All your existing UI below */}
-//       <StatusBar barStyle={theme === 'dark' ? 'light-content' : 'dark-content'} backgroundColor="transparent" translucent />
-//       <View className="flex-row items-center justify-between pt-10 px-4 pb-3" style={{ borderBottomWidth: 1, borderBottomColor: colors.border }}>
-//         <View className="flex-row items-center">
-//           <Text style={{ color: colors.text, fontSize: 24, fontWeight: '700' }}>Kliq</Text>
-//           {userStreak && <View className="ml-2"><StreakDisplay /></View>}
-//         </View>
-//         <TouchableOpacity onPress={navigateToProfile} className="p-1 rounded-full" style={{ borderWidth: 1, borderColor: colors.accent }}>
-//           <Image source={{ uri: user?.photoURL || 'https://via.placeholder.com/40' }} className="w-8 h-8 rounded-full" />
-//         </TouchableOpacity>
-//       </View>
-
-//       <FlatList
-//         data={filteredPosts}
-//         renderItem={({ item }) => <PostCard post={item} />}
-//         keyExtractor={item => item.id}
-//         ListHeaderComponent={
-//           <>
-//             <SearchBar />
-//             {carouselItems.length > 0 && (
-//               <View className="my-2">
-//                 <Carousel
-//                   width={SLIDER_WIDTH}
-//                   height={240}
-//                   data={carouselItems}
-//                   renderItem={renderCarouselItem}
-//                   mode="parallax"
-//                   modeConfig={{ parallaxScrollingScale: 0.9, parallaxScrollingOffset: 40 }}
-//                   loop
-//                   autoPlay
-//                   autoPlayInterval={4000}
-//                   onProgressChange={(_, absoluteProgress) => setActiveCarouselIndex(Math.round(absoluteProgress))}
-//                   scrollAnimationDuration={800}
-//                 />
-//                 <View className="flex-row justify-center mt-2">
-//                   {carouselItems.map((_, index) => (
-//                     <View key={`indicator-${index}`} className={`w-2 h-2 mx-1 rounded-full ${index === activeCarouselIndex ? 'bg-purple-500' : 'bg-gray-400'}`} />
-//                   ))}
-//                 </View>
-//               </View>
-//             )}
-//           </>
-//         }
-//         ListEmptyComponent={renderEmptyState}
-//         ListFooterComponent={renderFooter}
-//         onScroll={handleScroll}
-//         scrollEventThrottle={16}
-//         refreshing={refreshing}
-//         onRefresh={handleRefresh}
-//         contentContainerStyle={{ paddingBottom: 80 }}
-//       />
-
-//       <Animated.View className="absolute bottom-20 right-4" style={{ transform: [{ scale: scrollY.interpolate({ inputRange: [0, 100], outputRange: [1, 0.9], extrapolate: 'clamp' }) }] }}>
-//         {showFullButton ? (
-//           <TouchableOpacity className="rounded-full flex-row items-center px-4 py-2" style={{ backgroundColor: colors.accent, elevation: 6 }} onPress={() => setIsModalVisible(true)}>
-//             <Ionicons name="add" size={20} color="#FFF" />
-//             <Text style={{ color: '#FFF', fontWeight: '600', marginLeft: 4 }}>Create Post</Text>
-//           </TouchableOpacity>
-//         ) : (
-//           <TouchableOpacity className="w-12 h-12 rounded-full justify-center items-center" style={{ backgroundColor: colors.accent, elevation: 6 }} onPress={() => setIsModalVisible(true)}>
-//             <Ionicons name="add" size={24} color="#FFF" />
-//           </TouchableOpacity>
-//         )}
-//       </Animated.View>
-
-//       {isModalVisible && (
-//         <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 1000 }}>
-//           <CreatePostScreen visible={isModalVisible} onClose={() => setIsModalVisible(false)} onPostCreated={handlePostCreated} user={user} />
-//         </View>
-//       )}
-
-//       <StreakModal />
-//       <ConfettiCannon ref={confettiRef} count={50} origin={{ x: width / 2, y: 0 }} autoStart={false} fadeOut={true} colors={['#8B5CF6', '#F97316', '#F59E0B', '#10B981']} />
-//     </SafeAreaView>
-//   );
-// }

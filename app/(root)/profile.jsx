@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { 
   View, 
   Text, 
@@ -7,148 +7,98 @@ import {
   ScrollView, 
   Alert, 
   ActivityIndicator,
-  RefreshControl,
-  Modal,
-  TextInput,
   Platform,
-  StatusBar,
-  Dimensions,
-  FlatList
+  StatusBar
 } from 'react-native';
-import { collection, query, where, getDocs, orderBy, doc, getDoc, deleteDoc, updateDoc } from 'firebase/firestore';
-import { db, auth } from '../../config/firebaseConfig';
 import { useRouter } from 'expo-router';
 import { useAuth } from '../../context/authContext';
-import { MaterialIcons, Feather, Ionicons } from '@expo/vector-icons';
-
-const { width } = Dimensions.get('window');
-const ITEM_WIDTH = (width - 48) / 2; // 2 columns with spacing
+import { MaterialIcons, Ionicons } from '@expo/vector-icons';
+import { supabase } from '../../config/supabaseConfig';
+import { useSafeNavigation } from '../../hooks/useSafeNavigation';
+import PostCard from '../../components/PostCard';
 
 // Consistent Color Palette - Black Theme with Purple Accents
 const COLORS = {
   background: '#000000',
-  cardBg: '#000000',
+  cardBg: '#111111',
   text: '#FFFFFF',
   textSecondary: '#E5E5E5',
   textMuted: '#A1A1AA',
   inputBg: '#1A1A1A',
   accent: '#8B5CF6',
-  success: '#10B981',
   danger: '#EF4444',
-  shadow: 'rgba(139, 92, 246, 0.15)',
   border: 'rgba(255, 255, 255, 0.1)',
 };
 
 const Profile = () => {
-  const [userPosts, setUserPosts] = useState([]);
   const [userData, setUserData] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [showOptionsModal, setShowOptionsModal] = useState(false);
-  const [showEditPostModal, setShowEditPostModal] = useState(false);
-  const [selectedPost, setSelectedPost] = useState(null);
-  const [editedContent, setEditedContent] = useState('');
+  const [isModalVisible, setIsModalVisible] = useState(false);
+  const isMounted = useRef(true);
   
-  const { loginOut } = useAuth();
+  const { loginOut, user, isAuthenticated } = useAuth();
   const router = useRouter();
-  const currentUser = auth.currentUser;
 
-  // Load user data function with error handling
+  const [activeTab, setActiveTab] = useState('About');
+  const tabs = ['About', 'Posts'];
+
+  // Universal safe navigation
+  const { safeNavigate, safeBack } = useSafeNavigation({
+    modals: [
+      () => isModalVisible && setIsModalVisible(false),
+    ],
+    onCleanup: () => {
+      // Clean up any state here
+      setUserData(null);
+      setLoading(false);
+    }
+  });
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      isMounted.current = false;
+    };
+  }, []);
+
+  // Move useCallback to top level - before any conditional returns
+  const goHome = useCallback(async () => {
+    await safeNavigate('/(root)/(tabs)/home', { replace: true });
+  }, [safeNavigate]);
+
+  // Load user data from Supabase
   const loadUserData = async () => {
     try {
-      setLoading(true);
-      const userRef = doc(db, 'users', currentUser.uid);
-      const userSnap = await getDoc(userRef);
+      if (!user?.uid || !isMounted.current) {
+        console.log('No user found in context');
+        if (isMounted.current) setLoading(false);
+        return;
+      }
+
+      console.log('Loading user data for:', user.uid);
       
-      if (userSnap.exists()) {
-        setUserData(userSnap.data());
+      // Get user data from Supabase
+      const { data, error } = await supabase
+        .from('users')
+        .select('*')
+        .eq('id', user.uid)
+        .single();
+
+      if (error) {
+        console.error('Error fetching user data:', error);
+        // Use context user data if database fetch fails
+        if (isMounted.current) setUserData(user);
       } else {
-        Alert.alert('Error', 'User profile not found');
+        console.log('User data loaded successfully:', data);
+        if (isMounted.current) setUserData(data);
       }
     } catch (error) {
       console.error('Error loading user data:', error);
-      Alert.alert('Error', 'Failed to load profile data');
+      // Fallback to context user data
+      if (isMounted.current) setUserData(user);
     } finally {
-      setLoading(false);
+      if (isMounted.current) setLoading(false);
     }
-  };
-
-  // Load user posts
-  const loadUserPosts = async () => {
-    try {
-      const postsRef = collection(db, 'posts');
-      const q = query(
-        postsRef,
-        where('userId', '==', currentUser.uid),
-        orderBy('createdAt', 'desc')
-      );
-      
-      const querySnapshot = await getDocs(q);
-      const posts = querySnapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data(),
-      }));
-      
-      setUserPosts(posts);
-    } catch (error) {
-      console.error('Error loading posts:', error);
-      Alert.alert('Error', 'Failed to load posts');
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  };
-
-  // Handle post editing
-  const handleEditPost = async () => {
-    if (!selectedPost || !editedContent.trim()) return;
-    
-    try {
-      await updateDoc(doc(db, 'posts', selectedPost.id), {
-        content: editedContent.trim(),
-        updatedAt: new Date()
-      });
-      
-      setUserPosts(prev => prev.map(post => 
-        post.id === selectedPost.id 
-          ? { ...post, content: editedContent.trim() }
-          : post
-      ));
-      
-      setShowEditPostModal(false);
-      setSelectedPost(null);
-      setEditedContent('');
-      Alert.alert('Success', 'Post updated successfully');
-    } catch (error) {
-      console.error('Error updating post:', error);
-      Alert.alert('Error', 'Failed to update post');
-    }
-  };
-
-  // Handle post deletion with confirmation
-  const handleDeletePost = async (postId) => {
-    Alert.alert(
-      'Delete Post',
-      'Are you sure you want to delete this post? This action cannot be undone.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              await deleteDoc(doc(db, 'posts', postId));
-              setUserPosts(prev => prev.filter(post => post.id !== postId));
-              setShowEditPostModal(false);
-              Alert.alert('Success', 'Post deleted successfully');
-            } catch (error) {
-              console.error('Error deleting post:', error);
-              Alert.alert('Error', 'Failed to delete post');
-            }
-          }
-        }
-      ]
-    );
   };
 
   // Handle logout with confirmation
@@ -164,10 +114,11 @@ const Profile = () => {
           onPress: async () => {
             try {
               await loginOut();
-              router.replace('/(auth)/welcome');
+              // Don't manually navigate - let the auth context handle it
+              // The auth context will automatically redirect when isAuthenticated becomes false
             } catch (error) {
               console.error('Error during logout:', error);
-              Alert.alert('Error', 'Failed to logout');
+              Alert.alert('Error', 'Failed to logout. Please try again.');
             }
           }
         }
@@ -175,66 +126,24 @@ const Profile = () => {
     );
   };
 
-  // Refresh handler
-  const onRefresh = useCallback(() => {
-    setRefreshing(true);
-    Promise.all([loadUserData(), loadUserPosts()])
-      .finally(() => setRefreshing(false));
-  }, []);
-
-  // Initial data loading
+  // Load data when component mounts
   useEffect(() => {
-    if (currentUser) {
+    if (isAuthenticated && user) {
       loadUserData();
-      loadUserPosts();
+    } else {
+      if (isMounted.current) setLoading(false);
     }
-  }, [currentUser]);
+  }, [user, isAuthenticated]);
 
-  // Render post item for grid
-  const renderPostItem = ({ item, index }) => (
-    <TouchableOpacity
-      style={{
-        width: ITEM_WIDTH,
-        height: ITEM_WIDTH,
-        marginBottom: 16,
-        marginRight: index % 2 === 0 ? 16 : 0,
-        borderRadius: 12,
-        overflow: 'hidden',
-        backgroundColor: COLORS.inputBg,
-      }}
-      onPress={() => {
-        setSelectedPost(item);
-        setEditedContent(item.content);
-        setShowEditPostModal(true);
-      }}
-    >
-      {item.mediaUrls && item.mediaUrls.length > 0 ? (
-        <Image 
-          source={{ uri: item.mediaUrls[0] }}
-          style={{ width: '100%', height: '100%' }}
-          resizeMode="cover"
-        />
-      ) : (
-        <View style={{
-          flex: 1,
-          padding: 12,
-          justifyContent: 'center',
-        }}>
-          <Text style={{
-            color: COLORS.text,
-            fontSize: 14,
-            lineHeight: 20,
-          }} numberOfLines={6}>
-            {item.content}
-          </Text>
-        </View>
-      )}
-    </TouchableOpacity>
-  );
-
+  // Show loading state
   if (loading) {
     return (
-      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: COLORS.background }}>
+      <View style={{ 
+        flex: 1, 
+        justifyContent: 'center', 
+        alignItems: 'center', 
+        backgroundColor: COLORS.background 
+      }}>
         <StatusBar barStyle="light-content" backgroundColor={COLORS.background} />
         <ActivityIndicator size="large" color={COLORS.accent} />
         <Text style={{ 
@@ -245,6 +154,56 @@ const Profile = () => {
         }}>
           Loading profile...
         </Text>
+      </View>
+    );
+  }
+
+  // Show authentication required if not logged in
+  if (!isAuthenticated || !user) {
+    return (
+      <View style={{ 
+        flex: 1, 
+        justifyContent: 'center', 
+        alignItems: 'center', 
+        backgroundColor: COLORS.background,
+        padding: 20
+      }}>
+        <StatusBar barStyle="light-content" backgroundColor={COLORS.background} />
+        <Ionicons name="person-circle-outline" size={64} color={COLORS.textMuted} />
+        <Text style={{
+          color: COLORS.text,
+          fontSize: 18,
+          fontWeight: '600',
+          marginTop: 16,
+          marginBottom: 8,
+        }}>
+          Not Logged In
+        </Text>
+        <Text style={{
+          color: COLORS.textMuted,
+          fontSize: 14,
+          textAlign: 'center',
+          marginBottom: 24,
+        }}>
+          Please sign in to view your profile
+        </Text>
+        <TouchableOpacity
+          onPress={() => router.push('/(auth)/signin')}
+          style={{
+            backgroundColor: COLORS.accent,
+            paddingHorizontal: 24,
+            paddingVertical: 12,
+            borderRadius: 20,
+          }}
+        >
+          <Text style={{
+            color: '#FFFFFF',
+            fontSize: 16,
+            fontWeight: '700',
+          }}>
+            Sign In
+          </Text>
+        </TouchableOpacity>
       </View>
     );
   }
@@ -263,397 +222,329 @@ const Profile = () => {
         paddingBottom: 16,
       }}>
         <Text style={{
-          fontSize: 24,
-          fontWeight: '800',
+          fontSize: 28,
+          fontWeight: '700',
           color: COLORS.text,
         }}>
-          Profile
+          Kliq
         </Text>
-        <TouchableOpacity 
-          onPress={() => setShowOptionsModal(true)}
-          style={{
-            width: 44,
-            height: 44,
-            borderRadius: 22,
-            backgroundColor: COLORS.inputBg,
-            alignItems: 'center',
-            justifyContent: 'center',
-          }}
-        >
-          <Ionicons name="ellipsis-horizontal" size={20} color={COLORS.text} />
-        </TouchableOpacity>
+        <View style={{ flexDirection: 'row', gap: 16 }}>
+          <TouchableOpacity
+            onPress={() => router.push('/(root)/settings')}
+            style={{
+              width: 40,
+              height: 40,
+              borderRadius: 20,
+              backgroundColor: COLORS.cardBg,
+              alignItems: 'center',
+              justifyContent: 'center',
+              borderWidth: 1,
+              borderColor: COLORS.border,
+            }}
+          >
+            <Ionicons name="settings-outline" size={22} color={COLORS.text} />
+          </TouchableOpacity>
+        </View>
       </View>
 
       <ScrollView
         style={{ flex: 1 }}
         showsVerticalScrollIndicator={false}
-        refreshControl={
-          <RefreshControl 
-            refreshing={refreshing} 
-            onRefresh={onRefresh} 
-            tintColor={COLORS.accent}
-            colors={[COLORS.accent]}
-          />
-        }
+        contentContainerStyle={{ paddingBottom: 40 }}
       >
-        {/* User Info Section */}
-        <View style={{
-          paddingHorizontal: 20,
-          paddingBottom: 32,
-        }}>
-          {/* Profile Picture and Edit Button Row */}
+        {/* Profile Info */}
+        <View style={{ paddingHorizontal: 20, marginBottom: 24 }}>
+          {/* Profile Image */}
           <View style={{
-            flexDirection: 'row',
-            alignItems: 'flex-start',
-            justifyContent: 'space-between',
+            width: 100,
+            height: 100,
+            borderRadius: 50,
+            backgroundColor: COLORS.cardBg,
+            alignSelf: 'center',
             marginBottom: 16,
+            overflow: 'hidden'
           }}>
             <Image
               source={{ 
-                uri: userData?.profileImage || currentUser?.photoURL || 'https://cdn-icons-png.flaticon.com/512/149/149071.png'
+                uri: userData?.profile_image || 
+                     userData?.profileImage || 
+                     'https://cdn-icons-png.flaticon.com/512/149/149071.png'
               }}
-              style={{ 
-                width: 80, 
-                height: 80, 
-                borderRadius: 40,
-                borderWidth: 2,
-                borderColor: COLORS.accent,
-              }}
+              style={{ width: '100%', height: '100%' }}
+              resizeMode="cover"
             />
-            
-            <TouchableOpacity
-              onPress={() => router.push('/(root)/editprofile')}
-              style={{
-                borderWidth: 1,
-                borderColor: COLORS.border,
-                borderRadius: 20,
-                paddingHorizontal: 16,
-                paddingVertical: 8,
-                backgroundColor: 'transparent',
-              }}
-            >
-              <Text style={{
-                color: COLORS.text,
-                fontSize: 14,
-                fontWeight: '600',
-              }}>
-                Edit Profile
-              </Text>
-            </TouchableOpacity>
           </View>
 
-          {/* Name */}
+          {/* Name and Username */}
           <Text style={{
-            fontSize: 22,
-            fontWeight: '800',
+            fontSize: 24,
+            fontWeight: '700',
             color: COLORS.text,
+            textAlign: 'center',
             marginBottom: 4,
           }}>
-            {userData?.fullName || currentUser?.displayName || 'User'}
+            {userData?.full_name || userData?.fullName || 'User'}
           </Text>
-
-          {/* Username */}
           <Text style={{
             fontSize: 16,
             color: COLORS.textMuted,
-            marginBottom: 12,
-          }}>
-            @{userData?.displayName || userData?.username || 'username'}
-          </Text>
-
-          {/* Bio */}
-          {userData?.bio && (
-            <Text style={{
-              fontSize: 16,
-              color: COLORS.textSecondary,
-              lineHeight: 22,
-              marginBottom: 16,
-            }}>
-              {userData.bio}
-            </Text>
-          )}
-
-          {/* Stats */}
-          <View style={{
-            flexDirection: 'row',
-            alignItems: 'center',
+            textAlign: 'center',
             marginBottom: 16,
           }}>
+            @{userData?.username || 'username'}
+          </Text>
+
+          {/* Follow Stats */}
+          <View style={{
+            flexDirection: 'row',
+            justifyContent: 'center',
+            gap: 24,
+            marginBottom: 24,
+          }}>
+            <TouchableOpacity>
+              <Text style={{ color: COLORS.text, fontSize: 16, fontWeight: '600', textAlign: 'center' }}>
+                1
+              </Text>
+              <Text style={{ color: COLORS.textMuted, fontSize: 14 }}>following</Text>
+            </TouchableOpacity>
+            <TouchableOpacity>
+              <Text style={{ color: COLORS.text, fontSize: 16, fontWeight: '600', textAlign: 'center' }}>
+                0
+              </Text>
+              <Text style={{ color: COLORS.textMuted, fontSize: 14 }}>followers</Text>
+            </TouchableOpacity>
+          </View>
+
+          {/* Edit Profile Button */}
+          <TouchableOpacity
+            onPress={() => router.push('/(root)/editprofile')}
+            style={{
+              backgroundColor: COLORS.cardBg,
+              paddingVertical: 12,
+              borderRadius: 25,
+              borderWidth: 1,
+              borderColor: COLORS.border,
+            }}
+          >
             <Text style={{
               color: COLORS.text,
-              fontSize: 16,
-              fontWeight: '700',
-              marginRight: 4,
+              fontSize: 15,
+              fontWeight: '600',
+              textAlign: 'center',
             }}>
-              {userPosts.length}
+              Edit Profile
             </Text>
-            <Text style={{
-              color: COLORS.textMuted,
-              fontSize: 16,
-            }}>
-              {userPosts.length === 1 ? 'post' : 'posts'}
-            </Text>
-          </View>
+          </TouchableOpacity>
         </View>
 
-        {/* Posts Grid */}
-        <View style={{ paddingHorizontal: 20 }}>
-          {userPosts.length === 0 ? (
-            <View style={{
-              alignItems: 'center',
-              justifyContent: 'center',
-              paddingVertical: 60,
-            }}>
-              <Ionicons name="grid-outline" size={64} color={COLORS.textMuted} />
+        {/* Tabs */}
+        <View style={{
+          flexDirection: 'row',
+          paddingHorizontal: 20,
+          marginBottom: 16,
+          gap: 12,
+        }}>
+          {tabs.map((tab) => (
+            <TouchableOpacity
+              key={tab}
+              onPress={() => setActiveTab(tab)}
+              style={{
+                flex: 1,
+                paddingVertical: 12,
+                borderRadius: 12,
+                backgroundColor: activeTab === tab ? COLORS.cardBg : 'transparent',
+                borderWidth: 1,
+                borderColor: activeTab === tab ? COLORS.accent : COLORS.border,
+              }}
+            >
               <Text style={{
-                color: COLORS.textMuted,
-                fontSize: 18,
+                color: activeTab === tab ? COLORS.accent : COLORS.textMuted,
+                fontSize: 15,
                 fontWeight: '600',
-                marginTop: 16,
-                marginBottom: 8,
-              }}>
-                No posts yet
-              </Text>
-              <Text style={{
-                color: COLORS.textMuted,
-                fontSize: 14,
                 textAlign: 'center',
-                marginBottom: 24,
               }}>
-                Share your thoughts and experiences{'\n'}to start building your profile
+                {tab}
               </Text>
-              <TouchableOpacity
-                onPress={() => router.push('/(root)/(tabs)/home')}
-                style={{
-                  backgroundColor: COLORS.accent,
-                  paddingHorizontal: 24,
-                  paddingVertical: 12,
-                  borderRadius: 20,
-                }}
-              >
-                <Text style={{
-                  color: '#FFFFFF',
-                  fontSize: 16,
-                  fontWeight: '700',
+            </TouchableOpacity>
+          ))}
+        </View>
+
+        {/* Tab Content */}
+        <View style={{ paddingHorizontal: 20 }}>
+          {activeTab === 'About' && (
+            <View style={{ gap: 16 }}>
+              {userData?.bio && (
+                <View style={{
+                  backgroundColor: COLORS.cardBg,
+                  padding: 16,
+                  borderRadius: 12,
+                  borderWidth: 1,
+                  borderColor: COLORS.border,
                 }}>
-                  Create Post
-                </Text>
-              </TouchableOpacity>
+                  <Text style={{ color: COLORS.textSecondary, fontSize: 15, lineHeight: 22 }}>
+                    {userData.bio}
+                  </Text>
+                </View>
+              )}
+              
+              {/* College Info */}
+              <View style={{
+                backgroundColor: COLORS.cardBg,
+                borderRadius: 12,
+                borderWidth: 1,
+                borderColor: COLORS.border,
+                overflow: 'hidden',
+              }}>
+                {userData?.college?.name && (
+                  <View style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    padding: 16,
+                    borderBottomWidth: 1,
+                    borderBottomColor: COLORS.border,
+                  }}>
+                    <Ionicons name="school-outline" size={20} color={COLORS.accent} />
+                    <Text style={{ color: COLORS.textSecondary, fontSize: 15, marginLeft: 12 }}>
+                      {userData.college.name}
+                    </Text>
+                  </View>
+                )}
+                
+                {userData?.branch && (
+                  <View style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    padding: 16,
+                    borderBottomWidth: 1,
+                    borderBottomColor: COLORS.border,
+                  }}>
+                    <Ionicons name="book-outline" size={20} color={COLORS.accent} />
+                    <Text style={{ color: COLORS.textSecondary, fontSize: 15, marginLeft: 12 }}>
+                      {userData.branch}
+                    </Text>
+                  </View>
+                )}
+
+                {userData?.passout_year && (
+                  <View style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    padding: 16,
+                    borderBottomWidth: 1,
+                    borderBottomColor: COLORS.border,
+                  }}>
+                    <Ionicons name="calendar-outline" size={20} color={COLORS.accent} />
+                    <Text style={{ color: COLORS.textSecondary, fontSize: 15, marginLeft: 12 }}>
+                      Class of {userData.passout_year}
+                    </Text>
+                  </View>
+                )}
+
+                {userData?.interests && (
+                  <View style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    padding: 16,
+                  }}>
+                    <Ionicons name="heart-outline" size={20} color={COLORS.accent} />
+                    <Text style={{ color: COLORS.textSecondary, fontSize: 15, marginLeft: 12 }}>
+                      {Array.isArray(userData.interests) ? userData.interests.join(', ') : userData.interests}
+                    </Text>
+                  </View>
+                )}
+              </View>
             </View>
-          ) : (
-            <FlatList
-              data={userPosts}
-              renderItem={renderPostItem}
-              numColumns={2}
-              columnWrapperStyle={{ justifyContent: 'flex-start' }}
-              scrollEnabled={false}
-              showsVerticalScrollIndicator={false}
-              contentContainerStyle={{ paddingBottom: 40 }}
-            />
+          )}
+
+          {activeTab === 'Posts' && (
+            <UserPostsList userId={userData?.id || userData?.uid} />
           )}
         </View>
       </ScrollView>
-
-      {/* Edit Post Modal */}
-      <Modal
-        visible={showEditPostModal}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setShowEditPostModal(false)}
-      >
-        <View style={{
-          flex: 1,
-          backgroundColor: 'rgba(0,0,0,0.8)',
-          justifyContent: 'flex-end',
-        }}>
-          <View style={{ 
-            backgroundColor: COLORS.cardBg, 
-            borderTopLeftRadius: 24, 
-            borderTopRightRadius: 24, 
-            padding: 24,
-            borderWidth: 1,
-            borderColor: COLORS.border,
-          }}>
-            <Text style={{ 
-              fontSize: 20, 
-              fontWeight: '800', 
-              color: COLORS.text, 
-              marginBottom: 20 
-            }}>
-              Edit Post
-            </Text>
-            
-            <TextInput
-              value={editedContent}
-              onChangeText={setEditedContent}
-              multiline
-              style={{ 
-                backgroundColor: COLORS.inputBg, 
-                borderRadius: 16, 
-                padding: 16, 
-                minHeight: 120, 
-                marginBottom: 20, 
-                color: COLORS.text,
-                fontSize: 16,
-                textAlignVertical: 'top',
-              }}
-              placeholder="Edit your post..."
-              placeholderTextColor={COLORS.textMuted}
-            />
-            
-            <View style={{ flexDirection: 'row', gap: 12, marginBottom: 12 }}>
-              <TouchableOpacity
-                onPress={() => setShowEditPostModal(false)}
-                style={{ 
-                  flex: 1, 
-                  padding: 16, 
-                  borderRadius: 16, 
-                  backgroundColor: COLORS.inputBg,
-                  alignItems: 'center',
-                }}
-              >
-                <Text style={{ 
-                  fontWeight: '600', 
-                  color: COLORS.text,
-                  fontSize: 16,
-                }}>
-                  Cancel
-                </Text>
-              </TouchableOpacity>
-              
-              <TouchableOpacity
-                onPress={handleEditPost}
-                style={{ 
-                  flex: 1, 
-                  padding: 16, 
-                  borderRadius: 16, 
-                  backgroundColor: COLORS.accent,
-                  alignItems: 'center',
-                }}
-              >
-                <Text style={{ 
-                  fontWeight: '700', 
-                  color: '#FFFFFF',
-                  fontSize: 16,
-                }}>
-                  Save Changes
-                </Text>
-              </TouchableOpacity>
-            </View>
-            
-            <TouchableOpacity
-              onPress={() => handleDeletePost(selectedPost?.id)}
-              style={{ 
-                padding: 16, 
-                borderRadius: 16, 
-                backgroundColor: 'rgba(239, 68, 68, 0.1)',
-                alignItems: 'center',
-                borderWidth: 1,
-                borderColor: COLORS.danger,
-              }}
-            >
-              <Text style={{ 
-                fontWeight: '600', 
-                color: COLORS.danger,
-                fontSize: 16,
-              }}>
-                Delete Post
-              </Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
-
-      {/* Options Modal */}
-      <Modal
-        visible={showOptionsModal}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setShowOptionsModal(false)}
-      >
-        <View style={{
-          flex: 1,
-          backgroundColor: 'rgba(0,0,0,0.8)',
-          justifyContent: 'flex-end',
-        }}>
-          <View style={{ 
-            backgroundColor: COLORS.cardBg, 
-            borderTopLeftRadius: 24, 
-            borderTopRightRadius: 24, 
-            padding: 24,
-            borderWidth: 1,
-            borderColor: COLORS.border,
-          }}>
-            <Text style={{ 
-              fontSize: 20, 
-              fontWeight: '800', 
-              color: COLORS.text, 
-              marginBottom: 24 
-            }}>
-              Profile Options
-            </Text>
-            
-            <TouchableOpacity 
-              style={{ 
-                flexDirection: 'row', 
-                alignItems: 'center', 
-                gap: 16, 
-                paddingVertical: 16, 
-                borderBottomWidth: 1, 
-                borderBottomColor: COLORS.border 
-              }}
-              onPress={() => {
-                setShowOptionsModal(false);
-                router.push('/(root)/editprofile');
-              }}
-            >
-              <MaterialIcons name="person-outline" size={24} color={COLORS.accent} />
-              <Text style={{ color: COLORS.text, fontSize: 16, fontWeight: '500' }}>
-                Edit Profile
-              </Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity 
-              style={{ 
-                flexDirection: 'row', 
-                alignItems: 'center', 
-                gap: 16, 
-                paddingVertical: 16, 
-                borderBottomWidth: 1, 
-                borderBottomColor: COLORS.border 
-              }}
-              onPress={() => {
-                setShowOptionsModal(false);
-                // Handle settings navigation
-              }}
-            >
-              <Ionicons name="settings-outline" size={24} color={COLORS.accent} />
-              <Text style={{ color: COLORS.text, fontSize: 16, fontWeight: '500' }}>
-                Settings
-              </Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity 
-              style={{ 
-                flexDirection: 'row', 
-                alignItems: 'center', 
-                gap: 16, 
-                paddingVertical: 16 
-              }}
-              onPress={() => {
-                setShowOptionsModal(false);
-                handleLogout();
-              }}
-            >
-              <MaterialIcons name="logout" size={24} color={COLORS.danger} />
-              <Text style={{ color: COLORS.danger, fontSize: 16, fontWeight: '500' }}>
-                Logout
-              </Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
     </View>
+  );
+};
+
+const UserPostsList = ({ userId }) => {
+  const [posts, setPosts] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const isMounted = useRef(true);
+
+  useEffect(() => {
+    isMounted.current = true;
+    loadPosts();
+
+    return () => {
+      isMounted.current = false;
+    };
+  }, [userId]);
+    
+    const loadPosts = async () => {
+    if (!userId || !isMounted.current) return;
+    
+    setLoading(true);
+      try {
+        const { data, error } = await supabase
+          .from('posts')
+          .select('*')
+          .eq('user_id', userId)
+          .order('created_at', { ascending: false });
+
+      if (error) throw error;
+        if (isMounted.current) {
+        setPosts(data);
+        }
+      } catch (error) {
+      console.error('Error fetching user posts:', error);
+    } finally {
+        if (isMounted.current) {
+          setLoading(false);
+        }
+      }
+    };
+
+  if (loading) {
+    return (
+      <View style={{ marginTop: 20, alignItems: 'center' }}>
+        <ActivityIndicator size="large" color={COLORS.accent} />
+        <Text style={{ color: COLORS.textMuted, marginTop: 8 }}>Loading posts...</Text>
+      </View>
+    );
+  }
+
+  return (
+    <ScrollView 
+      style={{ flex: 1, marginTop: 16 }}
+      contentContainerStyle={{ paddingBottom: 100 }}
+      showsVerticalScrollIndicator={false}
+    >
+      {posts.length > 0 ? (
+        posts.map(post => (
+          <PostCard key={post.id} post={post} />
+        ))
+      ) : (
+        <View style={{ alignItems: 'center', marginTop: 40 }}>
+          <Ionicons name="documents-outline" size={48} color={COLORS.textMuted} />
+          <Text style={{ 
+            color: COLORS.textMuted, 
+            marginTop: 16, 
+            fontSize: 16,
+            fontWeight: '500'
+          }}>
+            No Posts Yet
+          </Text>
+          <Text style={{
+            color: COLORS.textMuted,
+            marginTop: 8,
+            fontSize: 14,
+            textAlign: 'center',
+            paddingHorizontal: 40,
+          }}>
+            This user hasn't shared any posts.
+          </Text>
+        </View>
+      )}
+    </ScrollView>
   );
 };
 
