@@ -110,8 +110,9 @@
 
 import React, { useEffect, useState, createContext, useContext } from 'react';
 import { AppState, StatusBar, Text } from 'react-native';
-import { doc, updateDoc, serverTimestamp } from 'firebase/firestore';
-import { db } from '../config/firebaseConfig';
+// Temporarily disabled Firebase imports during onboarding transition
+// import { doc, updateDoc, serverTimestamp } from 'firebase/firestore';
+// import { db } from '../config/firebaseConfig';
 import { useSegments, useRouter, Stack } from 'expo-router';
 import AuthContextProvider, { useAuth } from '../context/authContext';
 import ErrorBoundary from '../components/ErrorBoundary';
@@ -153,7 +154,7 @@ function FontProvider({ children }) {
 }
 
 function RootLayoutNav() {
-  const { isAuthenticated, user } = useAuth();
+  const { isAuthenticated, user, isProfileComplete } = useAuth();
   const segments = useSegments();
   const router = useRouter();
   
@@ -162,17 +163,32 @@ function RootLayoutNav() {
 
   useEffect(() => {
     if (typeof isAuthenticated === 'undefined') return;
+    
     const inApp = segments[0] === '(root)';
-    if (isAuthenticated && !inApp) {
-      router.replace('(root)/home');
+    const inAuth = segments[0] === '(auth)';
+    
+    if (isAuthenticated && !inApp && !inAuth) {
+      // If authenticated but not in app or auth, check profile completion
+      if (isProfileComplete === false) {
+        router.replace('/(auth)/onboarding');
+      } else if (isProfileComplete === true) {
+        router.replace('/(root)/(tabs)/home');
+      }
     } else if (isAuthenticated === false) {
-      router.replace('signin');
+      router.replace('/(auth)/signin');
     }
-  }, [isAuthenticated, user]);
+  }, [isAuthenticated, user, isProfileComplete]);
 
+  // Disabled Firebase user status updates during onboarding transition
+  // TODO: Re-enable after migrating user status to Supabase
   useEffect(() => {
-    if (!user) return;
-
+    if (!user || !isProfileComplete) return; // Only update status for complete profiles
+    
+    // Skip Firebase updates during onboarding to prevent document errors
+    console.log('User status updates disabled during onboarding transition');
+    
+    // Uncomment below when ready to migrate user status to Supabase
+    /*
     const userRef = doc(db, 'users', user.uid);
 
     const subscription = AppState.addEventListener('change', (nextAppState) => {
@@ -190,7 +206,8 @@ function RootLayoutNav() {
         lastSeen: serverTimestamp(),
       }, { merge: true }).catch(console.error);
     };
-  }, [user]);
+    */
+  }, [user, isProfileComplete]);
 
   return (
     <>

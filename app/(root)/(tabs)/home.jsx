@@ -226,7 +226,8 @@ export default function EnhancedHome() {
           users!posts_user_id_fkey (
             full_name,
             username,
-            profile_image
+            profile_image,
+            profile_initials
           ),
           likes (
             id,
@@ -248,6 +249,8 @@ export default function EnhancedHome() {
       const transformedPosts = postsData?.map(post => ({
         ...post,
         userName: post.users?.full_name || post.user_name || 'Anonymous',
+        username: post.users?.username || post.user_username || (post.users?.full_name || post.user_name || 'anonymous').toLowerCase(),
+        profile_initials: post.users?.profile_initials || post.user_initials || (post.users?.full_name || post.user_name || 'A').charAt(0).toUpperCase(),
         userAvatar: post.users?.profile_image || post.user_avatar || null,
         likesCount: post.likes?.length || 0,
         commentsCount: post.comments?.length || 0,
@@ -488,16 +491,19 @@ export default function EnhancedHome() {
             fontWeight: '800',
             marginRight: 12,
           }}>
-            Kliq
+            SocialZ
           </AppText>
            {/* Streak Icon */}
            <TouchableOpacity onPress={() => router.push('/streak')} style={{ flexDirection: 'row', alignItems: 'center' }}>
             <MaterialCommunityIcons name="fire" size={24} color={COLORS.accent} />
-            {/* {user?.streak?.[0]?.streak_count >=0 && ( */}
+            {user?.streak?.current_streak !== undefined && (
               <Text style={{ color: colors.accent, marginLeft: 4, fontWeight: 'bold' }}>
                 {user.streak.current_streak}
               </Text>
-            {/* )} */}
+            )}
+            {user?.streak?.current_streak === undefined && (
+              <Text style={{ color: colors.accent, marginLeft: 4, fontWeight: 'bold' }}>0</Text>
+            )}
            </TouchableOpacity>
         </View>
 
@@ -546,14 +552,28 @@ export default function EnhancedHome() {
               borderRadius: 21,
               overflow: 'hidden',
               borderWidth: 2,
-              borderColor: colors.accent
+              borderColor: colors.accent,
+              justifyContent: 'center',
+              alignItems: 'center',
+              backgroundColor: colors.cardBg,
             }}
           >
-            <Image 
-              source={{ uri: user?.profileImage || user?.photoURL || 'https://via.placeholder.com/40' }} 
-              style={{ width: '100%', height: '100%' }}
-              resizeMode="cover"
-            />
+            {user?.profileImage || user?.photoURL ? (
+              <Image 
+                source={{ uri: user?.profileImage || user?.photoURL }} 
+                style={{ width: '100%', height: '100%' }}
+                resizeMode="cover"
+              />
+            ) : (
+              <Text style={{
+                color: colors.text,
+                fontSize: 16,
+                fontWeight: '800',
+                letterSpacing: -0.3,
+              }}>
+                {user?.profile_initials || user?.full_name?.charAt(0) || user?.fullName?.charAt(0) || 'U'}
+              </Text>
+            )}
           </TouchableOpacity>
         </View>
       </View>
@@ -561,7 +581,7 @@ export default function EnhancedHome() {
   ), [colors, theme, safeNavigate, user]);
 
   const renderCarousel = useCallback(() => (
-        <View style={{ marginVertical: 16 }}>
+        <View style={{ marginVertical: 12 }}>
           <Carousel
             width={width * 0.98}
             height={160}
@@ -600,7 +620,7 @@ export default function EnhancedHome() {
   ), [carouselItems, activeCarouselIndex, colors.accent]);
 
   const renderHeader = useCallback(() => (
-    <View style={{ paddingTop: 10 }}>
+    <View style={{ paddingTop: 8 }}>
       <TouchableOpacity
         onPress={() => router.push('/createpost')}
         style={{
@@ -610,16 +630,41 @@ export default function EnhancedHome() {
           paddingHorizontal: 15,
           paddingVertical: 12,
           borderRadius: 25,
-          marginHorizontal: 15,
-          marginBottom: 16,
+          marginHorizontal: 12,
+          marginBottom: 12,
           borderWidth: 1,
           borderColor: colors.border
         }}
       >
-        <Image
-          source={{ uri: user?.profileImage || user?.photoURL || 'https://via.placeholder.com/40' }}
-          style={{ width: 40, height: 40, borderRadius: 20, marginRight: 12 }}
-        />
+        <View style={{
+          width: 40,
+          height: 40,
+          borderRadius: 20,
+          marginRight: 12,
+          justifyContent: 'center',
+          alignItems: 'center',
+          backgroundColor: colors.cardBg,
+          borderWidth: 2,
+          borderColor: colors.accent,
+          overflow: 'hidden',
+        }}>
+          {user?.profileImage || user?.photoURL ? (
+            <Image
+              source={{ uri: user?.profileImage || user?.photoURL }}
+              style={{ width: '100%', height: '100%' }}
+              resizeMode="cover"
+            />
+          ) : (
+            <Text style={{
+              color: colors.text,
+              fontSize: 14,
+              fontWeight: '800',
+              letterSpacing: -0.3,
+            }}>
+              {user?.profile_initials || user?.full_name?.charAt(0) || user?.fullName?.charAt(0) || 'U'}
+            </Text>
+          )}
+        </View>
         <Text style={{ color: colors.secondaryText, fontSize: 16 }}>What's happening?</Text>
         <View style={{ flex: 1 }} />
         <Ionicons name="images-outline" size={24} color={colors.accent} />

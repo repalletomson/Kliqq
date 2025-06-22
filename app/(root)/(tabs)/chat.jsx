@@ -165,18 +165,7 @@ export default function ChatList() {
     try {
       const { data, error } = await supabase
         .from('users')
-        .select(`
-          id,
-          username,
-          full_name,
-          profile_image,
-          college,
-          branch,
-          passout_year,
-          bio,
-          last_seen,
-          is_online
-        `)
+        .select('*') // Fetch all fields from users table
         .eq('id', userId)
         .single();
 
@@ -200,6 +189,11 @@ export default function ChatList() {
         passout_year: data.passout_year,
         bio: data.bio,
         about: data.bio,
+        profile_initials: data.profile_initials,
+        interests: data.interests,
+        created_at: data.created_at,
+        updated_at: data.updated_at,
+        expo_push_token: data.expo_push_token,
         lastSeen: data.last_seen ? new Date(data.last_seen) : null,
         isOnline: data.is_online || false
       };
@@ -686,10 +680,10 @@ export default function ChatList() {
         useNativeDriver: true,
         speed: 20,
         bounciness: 4,
-      }).start();
-    };
+              }).start();
+      };
 
-    const handlePressOut = () => {
+      const handlePressOut = () => {
       Animated.spring(scaleAnim, {
         toValue: 1,
         useNativeDriver: true,
@@ -722,23 +716,27 @@ export default function ChatList() {
             alignItems: 'center',
           }}
         >
-          {/* Profile Image with online indicator */}
+          {/* Profile Avatar with online indicator */}
           <View style={{ position: 'relative', marginRight: 16 }}>
-            <Image
-              source={
-                item.recipient?.profileImage
-                  ? { uri: item.recipient.profileImage === "https://via.placeholder.com/150" ? DEFAULT_PROFILE : item.recipient.profileImage }
-                  : { uri: DEFAULT_PROFILE }
-              }
-              style={{
-                width: 56,
-                height: 56,
-                borderRadius: 28,
-                backgroundColor: COLORS.searchBackground,
-                borderWidth: hasUnread ? 2 : 1,
-                borderColor: hasUnread ? COLORS.primary : COLORS.border,
-              }}
-            />
+                         <View style={{
+               width: 56,
+               height: 56,
+               borderRadius: 28,
+               backgroundColor: COLORS.secondaryBackground,
+               justifyContent: 'center',
+               alignItems: 'center',
+               borderWidth: hasUnread ? 2 : 2,
+               borderColor: hasUnread ? COLORS.primary : COLORS.accent,
+             }}>
+               <Text style={{
+                 color: COLORS.textPrimary,
+                 fontSize: 20,
+                 fontWeight: '800',
+                 letterSpacing: -0.3,
+               }}>
+                 {item.recipient?.profile_initials || item.recipient?.full_name?.charAt(0) || item.recipient?.fullName?.charAt(0) || 'U'}
+               </Text>
+             </View>
             {item.recipient?.online && (
               <View style={{
                 position: 'absolute',

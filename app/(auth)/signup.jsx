@@ -397,31 +397,37 @@ export default function SignUpScreen() {
       // Check if registration was successful (returns user ID string or false)
       if (response && response !== false && typeof response === 'string') {
         console.log('✅ Registration successful, redirecting to profile...');
-        showError('Account created successfully! Welcome to Campus Connect! 🎉', 'success');
+        showError('Account created successfully! Welcome to SocialZ! 🎉', 'success');
         
         // Safe navigation with proper cleanup
         console.log('🚀 Preparing safe navigation to userprofile...');
         
         // Use setTimeout to ensure all state updates are complete
         setTimeout(async () => {
-          console.log('🔄 Starting safe navigation to user profile...');
+          console.log('🔄 Starting safe navigation to onboarding...');
           hideError();
           
           try {
-            // Use safe navigation utility
-            await safeNavigate(router, '/(auth)/userprofile', 'push');
-            console.log('✅ Navigation to userprofile successful');
-          } catch (navError) {
-            console.error('❌ Safe navigation failed, trying fallback:', navError);
-            
-            // Fallback navigation
-            setTimeout(() => {
+            // Use safe navigation utility - wait longer to ensure auth state is set
+            setTimeout(async () => {
               try {
-                router.replace('/(auth)/userprofile');
-              } catch (fallbackError) {
-                console.error('❌ Fallback navigation also failed:', fallbackError);
+                await safeNavigate(router, '/(auth)/onboarding', 'replace');
+                console.log('✅ Navigation to onboarding successful');
+              } catch (navError) {
+                console.error('❌ Safe navigation failed, trying fallback:', navError);
+                
+                // Fallback navigation
+                setTimeout(() => {
+                  try {
+                    router.replace('/(auth)/onboarding');
+                  } catch (fallbackError) {
+                    console.error('❌ Fallback navigation also failed:', fallbackError);
+                  }
+                }, 500);
               }
-            }, 500);
+            }, 300);
+          } catch (error) {
+            console.error('❌ Navigation setup failed:', error);
           }
         }, 1200);
       } else {

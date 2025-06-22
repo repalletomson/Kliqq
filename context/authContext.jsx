@@ -211,6 +211,20 @@ export default function AuthContextProvider({ children }) {
     try {
       console.log("Logging out...");
       
+      // Clear push token from database before clearing local state
+      try {
+        const { data: { user: currentUser } } = await supabase.auth.getUser();
+        if (currentUser) {
+          await supabase
+            .from('users')
+            .update({ expo_push_token: null })
+            .eq('id', currentUser.id);
+          console.log("✅ Push token cleared from database");
+        }
+      } catch (tokenError) {
+        console.warn("⚠️ Failed to clear push token:", tokenError);
+      }
+      
       // Clear all local states immediately to prevent hooks errors
       setUser(null);
       setIsAuthenticated(false);
@@ -429,7 +443,7 @@ export default function AuthContextProvider({ children }) {
     try {
       const { data, error } = await supabase
         .from('users')
-        .select('full_name, branch, passout_year, college')
+        .select('full_name, branch, passout_year, college, interests, username, profile_initials')
         .eq('id', userId)
         .single();
 
@@ -438,19 +452,33 @@ export default function AuthContextProvider({ children }) {
         return false;
       }
 
-      // Check if all required profile fields are completed
-      const isComplete = !!(
-        data?.full_name?.trim() && 
-        data?.branch?.trim() && 
-        data?.passout_year?.trim() && 
-        data?.college?.name
-      );
+      // Check if all required profile fields are completed for the new onboarding flow
+      const hasBasicInfo = !!(data?.full_name?.trim() && data?.username?.trim());
+      const hasInterests = !!(data?.interests && data?.interests.length > 0);
+      
+      // Handle college field - it could be stored as JSONB or string
+      let collegeValue = '';
+      if (typeof data?.college === 'string') {
+        collegeValue = data.college.trim();
+      } else if (data?.college && typeof data.college === 'object') {
+        collegeValue = data.college.name || data.college.college || '';
+      }
+      
+      const hasEducation = !!(data?.branch?.trim() && data?.passout_year?.trim() && collegeValue);
+      
+      const isComplete = hasBasicInfo && hasInterests && hasEducation;
 
       console.log('Profile completion check:', {
         full_name: !!data?.full_name?.trim(),
+        username: !!data?.username?.trim(),
+        interests: !!(data?.interests && data?.interests.length > 0),
         branch: !!data?.branch?.trim(),
         passout_year: !!data?.passout_year?.trim(),
-        college: !!data?.college?.name,
+        college: !!collegeValue,
+        collegeValue,
+        hasBasicInfo,
+        hasInterests,
+        hasEducation,
         isComplete
       });
 

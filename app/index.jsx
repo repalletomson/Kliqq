@@ -67,8 +67,8 @@ export default function IndexPage() {
         setShouldRedirect(true);
       } else if (isAuthenticated === true) {
         if (isProfileComplete === false) {
-          console.log('➡️ Profile incomplete, going to userprofile');
-          setRedirectTo('/(auth)/userprofile');
+          console.log('➡️ Profile incomplete, going to onboarding');
+          setRedirectTo('/(auth)/onboarding');
           setShouldRedirect(true);
         } else if (isProfileComplete === true) {
           console.log('➡️ Profile complete, going to home');

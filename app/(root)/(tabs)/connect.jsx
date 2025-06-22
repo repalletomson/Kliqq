@@ -238,18 +238,7 @@ sendPushNotification();
       // Fetch all users except current user from Supabase
       const { data: usersData, error } = await supabase
         .from('users')
-        .select(`
-          id,
-          username,
-          full_name,
-          profile_image,
-          branch,
-          passout_year,
-          interests,
-          college,
-          bio,
-          created_at
-        `)
+        .select('*') // Fetch all fields from users table
         .neq('id', currentUser.uid)
         .limit(50);
 
@@ -271,6 +260,7 @@ sendPushNotification();
         username: user.username,
         profile_image: user.profile_image,
         profileImage: user.profile_image, // For backward compatibility
+        profile_initials: user.profile_initials,
         branch: user.branch,
         passout_year: user.passout_year,
         passoutYear: user.passout_year, // For backward compatibility
@@ -278,7 +268,11 @@ sendPushNotification();
         college: user.college,
         about: user.bio,
         bio: user.bio,
-        created_at: user.created_at
+        created_at: user.created_at,
+        updated_at: user.updated_at,
+        expo_push_token: user.expo_push_token,
+        is_online: user.is_online,
+        last_seen: user.last_seen
       })) || [];
 
       setUsers(transformedUsers);
@@ -406,18 +400,27 @@ const ProfileModal = ({ user, visible, onClose }) => (
         {/* Profile Content */}
         <ScrollView style={{ maxHeight: 480 }} showsVerticalScrollIndicator={false}>
           <View style={{ padding: 20, gap: 22, alignItems: "center" }}>
-            {/* User image and basic info */}  
+            {/* User avatar and basic info */}  
             <View style={{ alignItems: "center", gap: 16 }}> 
-              <Image
-                source={{ uri:user?.profileImage|| user?.profile_image || user?.photoUrl || "https://imgs.search.brave.com/SRTQLz_BmOq7xwzV7ls7bV62QzMZtDrGSacNS5G1d1A/rs:fit:500:0:0:0/g:ce/aHR0cHM6Ly9pY29u/cy52ZXJ5aWNvbi5j/b20vcG5nLzEyOC9t/aXNjZWxsYW5lb3Vz/LzNweC1saW5lYXIt/ZmlsbGV0LWNvbW1v/bi1pY29uL2RlZmF1/bHQtbWFsZS1hdmF0/YXItMS5wbmc" }}
-                style={{ 
-                  width: 90, 
-                  height: 90, 
-                  borderRadius: 45,
-                  borderWidth: 3,
-                  borderColor: theme.primary,
-                }}
-              />  
+              <View style={{ 
+                width: 90, 
+                height: 90, 
+                borderRadius: 45,
+                backgroundColor: theme.surface,
+                justifyContent: 'center',
+                alignItems: 'center',
+                borderWidth: 3,
+                borderColor: theme.primary,
+              }}>
+                <Text style={{
+                  color: theme.text,
+                  fontSize: 32,
+                  fontWeight: '800',
+                  letterSpacing: -0.3,
+                }}>
+                  {user?.profile_initials || user?.full_name?.charAt(0) || user?.fullName?.charAt(0) || 'U'}
+                </Text>
+              </View>  
 
               <View style={{ alignItems: "center", gap: 4 }}>
                 <Text style={{ 
@@ -733,7 +736,7 @@ const ProfileModal = ({ user, visible, onClose }) => (
         flex: 1,
         justifyContent: 'space-between',
       }}>
-        {/* Profile Image with Gradient Border */}
+        {/* Profile Avatar with Gradient Border */}
         <View style={{ marginBottom: 12 }}>
           <LinearGradient
             colors={['#8B5CF6', '#EC4899', '#F59E0B']}
@@ -744,22 +747,25 @@ const ProfileModal = ({ user, visible, onClose }) => (
               borderRadius: 35,
             }}
           >
-            <Image
-              source={{ 
-                uri: user.profileImage === 'https://via.placeholder.com/150' 
-                  ? 'https://assets.grok.com/users/8c354dfe-946c-4a32-b2de-5cb3a8ab9776/generated/av8GdgP4VI6wfj1B/image.jpg'
-                  : user.profileImage || "https://assets.grok.com/users/8c354dfe-946c-4a32-b2de-5cb3a8ab9776/generated/av8GdgP4VI6wfj1B/image.jpg"
-              }}
-              style={{
-                width: 64,
-                height: 64,
-                borderRadius: 32,
-                borderWidth: 3,
-                borderColor: theme.surface,
-                backgroundColor: theme.background,
-              }}
-              resizeMode="cover"
-            />
+                         <View style={{
+               width: 64,
+               height: 64,
+               borderRadius: 32,
+               backgroundColor: theme.surface,
+               justifyContent: 'center',
+               alignItems: 'center',
+               borderWidth: 2,
+               borderColor: theme.primary,
+             }}>
+               <Text style={{
+                 color: theme.text,
+                 fontSize: 24,
+                 fontWeight: '800',
+                 letterSpacing: -0.3,
+               }}>
+                 {user.profile_initials || user.full_name?.charAt(0) || user.fullName?.charAt(0) || 'U'}
+               </Text>
+             </View>
           </LinearGradient>
         </View>
         
@@ -868,7 +874,7 @@ const ProfileModal = ({ user, visible, onClose }) => (
         elevation: 2,
       }}
     >
-      {/* User Profile Image */}
+      {/* User Profile Avatar */}
       <LinearGradient
         colors={['#8B5CF6', '#EC4899']}
         start={{ x: 0, y: 0 }}
@@ -879,21 +885,25 @@ const ProfileModal = ({ user, visible, onClose }) => (
           marginRight: 16,
         }}
       >
-        <Image
-          source={{ 
-            uri: user.profileImage === 'https://via.placeholder.com/150' 
-              ? 'https://assets.grok.com/users/8c354dfe-946c-4a32-b2de-5cb3a8ab9776/generated/av8GdgP4VI6wfj1B/image.jpg'
-              : user.profileImage || "https://assets.grok.com/users/8c354dfe-946c-4a32-b2de-5cb3a8ab9776/generated/av8GdgP4VI6wfj1B/image.jpg"
-          }}
-          style={{
-            width: 56,
-            height: 56,
-            borderRadius: 28,
-            borderWidth: 2,
-            borderColor: theme.surface,
-          }}
-          resizeMode="cover"
-        />
+                 <View style={{
+          width: 56,
+          height: 56,
+          borderRadius: 28,
+          backgroundColor: theme.surface,
+          justifyContent: 'center',
+          alignItems: 'center',
+          borderWidth: 2,
+          borderColor: theme.primary,
+        }}>
+          <Text style={{
+            color: theme.text,
+            fontSize: 20,
+            fontWeight: '800',
+            letterSpacing: -0.3,
+          }}>
+            {user.profile_initials || user.full_name?.charAt(0) || user.fullName?.charAt(0) || 'U'}
+          </Text>
+        </View>
       </LinearGradient>
       
       {/* User Info */}

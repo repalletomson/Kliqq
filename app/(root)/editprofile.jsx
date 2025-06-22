@@ -10,66 +10,67 @@ import {
   ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
-  StatusBar
+  StatusBar,
+  Modal,
+  FlatList,
+  Dimensions
 } from 'react-native';
 import { useRouter, useNavigation } from 'expo-router';
-import { doc, updateDoc, getDoc } from 'firebase/firestore';
-import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
-import { db, storage, auth } from '../../config/firebaseConfig';
 import * as ImagePicker from 'expo-image-picker';
-import { MaterialIcons, Ionicons } from '@expo/vector-icons';
-import { Picker } from '@react-native-picker/picker';
-import { LinearGradient } from 'expo-linear-gradient';
+import { MaterialIcons, Ionicons, AntDesign, Feather } from '@expo/vector-icons';
 import { useSafeNavigation } from '../../hooks/useSafeNavigation';
 import { useAuth } from '../../context/authContext';
 import { supabase } from '../../config/supabaseConfig';
 
-const interests = [
-  "Programming",
-  "Artificial Intelligence",
-  "Web Development",
-  "Mobile Development",
-  "Data Science",
-  "Cybersecurity",
-  "Cloud Computing",
-  "UI/UX Design",
-  "Gaming",
-  "Playing Sports",
-  "Reading",
-  "Music",
-  "Photography",
-  "Robotics",
-  "IoT",
-  "Blockchain"
+const { width } = Dimensions.get('window');
+
+// Updated interest options matching onboarding
+const interestOptions = [
+  { id: 'movies', label: 'Movies', icon: '🎬' },
+  { id: 'games', label: 'Gaming', icon: '🎮' },
+  { id: 'coding', label: 'Coding', icon: '💻' },
+  { id: 'music', label: 'Music', icon: '🎵' },
+  { id: 'sports', label: 'Sports', icon: '⚽' },
+  { id: 'art', label: 'Art', icon: '🎨' },
+  { id: 'reading', label: 'Reading', icon: '📚' },
+  { id: 'travel', label: 'Travel', icon: '✈️' },
+  { id: 'photography', label: 'Photography', icon: '📸' },
+  { id: 'fitness', label: 'Fitness', icon: '💪' },
+  { id: 'cooking', label: 'Cooking', icon: '👨‍🍳' },
+  { id: 'dance', label: 'Dance', icon: '💃' },
 ];
 
-const branches = [
-  "Computer Science",
-  "Information Technology",
-  "Electronics & Communication",
-  "Electrical Engineering",
-  "Mechanical Engineering",
-  "Civil Engineering",
-  "Chemical Engineering",
-  "Biotechnology"
-];
+// Graduation years
+const currentYear = new Date().getFullYear();
+const passoutYears = Array.from({ length: 12 }, (_, i) => currentYear + 6 - i).reverse();
 
-const years = Array.from(
-  { length: 8 }, 
-  (_, i) => (new Date().getFullYear() + i).toString()
-);
-
-const COLORS = {
+// Updated black theme with purple accents
+const colors = {
   background: '#000000',
-  cardBg: '#111111',
+  surface: '#111111',
+  cardBg: '#1A1A1A',
   text: '#FFFFFF',
   textSecondary: '#E5E5E5',
   textMuted: '#A1A1AA',
-  inputBg: '#1A1A1A',
-  inputBorder: '#404040',
   accent: '#8B5CF6',
-  border: 'rgba(255, 255, 255, 0.1)',
-  danger: '#EF4444',
+  accentBg: '#8B5CF6',
+  accentText: '#FFFFFF',
+  border: '#333333',
+  inputBg: '#1A1A1A',
+  inputBorder: '#333333',
+  success: '#22C55E',
+  warning: '#F59E0B',
+  modalBg: 'rgba(0,0,0,0.8)',
+  // Interest selection colors with purple accents
+  selectedBg: '#8B5CF6',
+  selectedText: '#FFFFFF',
+  selectedBorder: '#A78BFA',
+  unselectedBg: '#1A1A1A',
+  unselectedText: '#FFFFFF',
+  unselectedBorder: '#333333',
+  purple: '#8B5CF6',
+  purpleLight: '#A78BFA',
+  purpleDark: '#7C3AED',
 };
 
 const EditProfile = () => {
@@ -80,6 +81,8 @@ const EditProfile = () => {
   const [imageUploading, setImageUploading] = useState(false);
   const [userData, setUserData] = useState(null);
   const [saving, setSaving] = useState(false);
+  const [showYearPicker, setShowYearPicker] = useState(false);
+  const [selectedInterests, setSelectedInterests] = useState([]);
   const isMounted = useRef(true);
   
   const { user } = useAuth();
@@ -115,13 +118,21 @@ const EditProfile = () => {
         }
 
         if (isMounted.current) {
-          setUserData(data || {
+          const loadedData = data || {
             full_name: user.displayName || '',
             username: '',
             bio: '',
             email: user.email || '',
             profile_image: user.photoURL || '',
-          });
+            interests: [],
+            college: '',
+            branch: '',
+            passout_year: '',
+            profile_initials: '',
+          };
+          
+          setUserData(loadedData);
+          setSelectedInterests(loadedData.interests || []);
           setLoading(false);
         }
       } catch (error) {
@@ -137,6 +148,27 @@ const EditProfile = () => {
     loadUserData();
   }, [user]);
 
+  const toggleInterest = (interestId) => {
+    if (selectedInterests.includes(interestId)) {
+      const updatedInterests = selectedInterests.filter(id => id !== interestId);
+      setSelectedInterests(updatedInterests);
+      setUserData(prev => ({ ...prev, interests: updatedInterests }));
+    } else {
+      if (selectedInterests.length >= 10) {
+        Alert.alert('Maximum Reached', 'You can select up to 10 interests only.');
+        return;
+      }
+      const updatedInterests = [...selectedInterests, interestId];
+      setSelectedInterests(updatedInterests);
+      setUserData(prev => ({ ...prev, interests: updatedInterests }));
+    }
+  };
+
+  const selectYear = (year) => {
+    setUserData(prev => ({ ...prev, passout_year: year.toString() }));
+    setShowYearPicker(false);
+  };
+
   const handleImagePick = async () => {
     try {
       const result = await ImagePicker.launchImageLibraryAsync({
@@ -147,31 +179,13 @@ const EditProfile = () => {
       });
 
       if (!result.canceled) {
-        await uploadImage(result.assets[0].uri);
+        // For now, just update the local state
+        // TODO: Implement image upload to Supabase storage
+        setUserData(prev => ({ ...prev, profile_image: result.assets[0].uri }));
       }
     } catch (error) {
       console.error('Error picking image:', error);
       Alert.alert('Error', 'Failed to pick image');
-    }
-  };
-
-  const uploadImage = async (uri) => {
-    try {
-      setImageUploading(true);
-      const response = await fetch(uri);
-      const blob = await response.blob();
-      const imageRef = ref(storage, `profile/${auth.currentUser.uid}_${Date.now()}`);
-      
-      await uploadBytes(imageRef, blob);
-      const downloadURL = await getDownloadURL(imageRef);
-      
-      setUserData(prev => ({ ...prev, profile_image: downloadURL }));
-      return downloadURL;
-    } catch (error) {
-      console.error('Error uploading image:', error);
-      Alert.alert('Error', 'Failed to upload image');
-    } finally {
-      setImageUploading(false);
     }
   };
 
@@ -181,16 +195,37 @@ const EditProfile = () => {
       return;
     }
 
+    // Validation
+    if (!userData.full_name?.trim()) {
+      Alert.alert('Required Field', 'Please enter your full name.');
+      return;
+    }
+
+    if (!userData.username?.trim()) {
+      Alert.alert('Required Field', 'Please enter your username.');
+      return;
+    }
+
     try {
       setSaving(true);
 
+      const updateData = {
+        id: user.uid,
+        full_name: userData.full_name?.trim(),
+        username: userData.username?.trim(),
+        email: userData.email || user.email || '', // Include email to satisfy NOT NULL constraint
+        bio: userData.bio?.trim() || '',
+        interests: selectedInterests,
+        college: userData.college?.trim() || '',
+        branch: userData.branch?.trim() || '',
+        passout_year: userData.passout_year || '',
+        profile_initials: userData.profile_initials || '',
+        updated_at: new Date().toISOString(),
+      };
+
       const { error } = await supabase
         .from('users')
-        .upsert({
-          id: user.uid,
-          ...userData,
-          updated_at: new Date().toISOString(),
-        });
+        .upsert(updateData);
 
       if (error) throw error;
 
@@ -214,16 +249,17 @@ const EditProfile = () => {
     return (
       <View style={{ 
         flex: 1, 
-        backgroundColor: COLORS.background,
+        backgroundColor: colors.background,
         justifyContent: 'center',
         alignItems: 'center'
       }}>
-        <StatusBar barStyle="light-content" backgroundColor={COLORS.background} />
-        <ActivityIndicator size="large" color={COLORS.accent} />
+        <StatusBar barStyle="light-content" backgroundColor={colors.background} />
+        <ActivityIndicator size="large" color={colors.accent} />
         <Text style={{ 
-          color: COLORS.textSecondary,
+          color: colors.textSecondary,
           marginTop: 16,
-          fontSize: 16
+          fontSize: 16,
+          fontWeight: '500'
         }}>
           Loading profile...
         </Text>
@@ -231,20 +267,43 @@ const EditProfile = () => {
     );
   }
 
+  const renderYearItem = ({ item }) => (
+    <TouchableOpacity
+      onPress={() => selectYear(item)}
+      style={{
+        paddingVertical: 16,
+        paddingHorizontal: 24,
+        borderBottomWidth: 1,
+        borderBottomColor: colors.border,
+        backgroundColor: userData?.passout_year === item.toString() ? colors.selectedBg : 'transparent',
+      }}
+    >
+      <Text style={{
+        fontSize: 18,
+        fontWeight: '600',
+        color: userData?.passout_year === item.toString() ? colors.selectedText : colors.text,
+        textAlign: 'center',
+      }}>
+        {item}
+      </Text>
+    </TouchableOpacity>
+  );
+
   return (
-    <View style={{ flex: 1, backgroundColor: COLORS.background }}>
-      <StatusBar barStyle="light-content" backgroundColor={COLORS.background} />
+    <View style={{ flex: 1, backgroundColor: colors.background }}>
+      <StatusBar barStyle="light-content" backgroundColor={colors.background} />
       
       {/* Header */}
       <View style={{
         flexDirection: 'row',
         justifyContent: 'space-between',
         alignItems: 'center',
-        paddingTop: Platform.OS === 'ios' ? 50 : 40,
-        paddingHorizontal: 20,
+        paddingTop: Platform.OS === 'ios' ? 45 : 15,
+        paddingHorizontal: 24,
         paddingBottom: 16,
         borderBottomWidth: 1,
-        borderBottomColor: COLORS.border,
+        borderBottomColor: colors.border,
+        backgroundColor: colors.background,
       }}>
         <TouchableOpacity
           onPress={safeBack}
@@ -256,13 +315,14 @@ const EditProfile = () => {
             justifyContent: 'center',
           }}
         >
-          <Ionicons name="arrow-back" size={24} color={COLORS.text} />
+          <Ionicons name="arrow-back" size={24} color={colors.text} />
         </TouchableOpacity>
         
         <Text style={{
-          fontSize: 18,
-          fontWeight: '600',
-          color: COLORS.text,
+          fontSize: 20,
+          fontWeight: '700',
+          color: colors.text,
+          letterSpacing: -0.3,
         }}>
           Edit Profile
         </Text>
@@ -275,9 +335,10 @@ const EditProfile = () => {
           }}
         >
           <Text style={{
-            color: COLORS.accent,
+            color: colors.accent,
             fontSize: 16,
-            fontWeight: '600',
+            fontWeight: '700',
+            letterSpacing: -0.2,
           }}>
             {saving ? 'Saving...' : 'Save'}
           </Text>
@@ -286,139 +347,492 @@ const EditProfile = () => {
 
       <ScrollView
         style={{ flex: 1 }}
-        contentContainerStyle={{ padding: 20 }}
+        contentContainerStyle={{ paddingHorizontal: 24, paddingVertical: 32 }}
         showsVerticalScrollIndicator={false}
       >
-        {/* Profile Image */}
-        <View style={{ alignItems: 'center', marginBottom: 24 }}>
-          <Image
-            source={{ uri: userData?.profile_image || 'https://via.placeholder.com/100' }}
-            style={{
+        {/* Profile Image Section */}
+        <View style={{ alignItems: 'center', marginBottom: 40 }}>
+          {userData?.profile_image ? (
+            <Image
+              source={{ uri: userData.profile_image }}
+              style={{
+                width: 100,
+                height: 100,
+                borderRadius: 50,
+                marginBottom: 16,
+                borderWidth: 3,
+                borderColor: colors.border,
+              }}
+            />
+          ) : (
+            <View style={{
               width: 100,
               height: 100,
               borderRadius: 50,
-              marginBottom: 12,
-            }}
-          />
+              backgroundColor: colors.cardBg,
+              justifyContent: 'center',
+              alignItems: 'center',
+              marginBottom: 16,
+              borderWidth: 3,
+              borderColor: colors.border,
+            }}>
+              <Text style={{
+                color: colors.text,
+                fontSize: 32,
+                fontWeight: '800',
+                letterSpacing: -0.5,
+              }}>
+                {userData?.profile_initials || userData?.full_name?.charAt(0) || 'U'}
+              </Text>
+            </View>
+          )}
           <TouchableOpacity
+            onPress={handleImagePick}
             style={{
-              backgroundColor: COLORS.inputBg,
-              paddingHorizontal: 16,
-              paddingVertical: 8,
-              borderRadius: 20,
+              backgroundColor: colors.cardBg,
+              paddingHorizontal: 20,
+              paddingVertical: 12,
+              borderRadius: 24,
               borderWidth: 1,
-              borderColor: COLORS.border,
+              borderColor: colors.border,
             }}
           >
-            <Text style={{ color: COLORS.accent }}>Change Photo</Text>
+            <Text style={{ 
+              color: colors.accent, 
+              fontSize: 15,
+              fontWeight: '600',
+              letterSpacing: -0.2,
+            }}>
+              Change Photo
+            </Text>
           </TouchableOpacity>
         </View>
 
-        {/* Form Fields */}
-        <View style={{ gap: 20 }}>
-          <View>
+        {/* Personal Information */}
+        <View style={{ marginBottom: 32 }}>
+          <Text style={{
+            color: colors.text,
+            fontSize: 20,
+            fontWeight: '700',
+            marginBottom: 20,
+            letterSpacing: -0.3,
+          }}>
+            Personal Information
+          </Text>
+
+          {/* Full Name */}
+          <View style={{ marginBottom: 24 }}>
             <Text style={{
-              color: COLORS.textSecondary,
-              marginBottom: 8,
-              fontSize: 14,
+              color: colors.text,
+              fontSize: 17,
+              fontWeight: '600',
+              marginBottom: 12,
+              letterSpacing: -0.2,
             }}>
               Full Name
             </Text>
-            <TextInput
-              value={userData?.full_name || ''}
-              onChangeText={(text) => setUserData(prev => ({ ...prev, full_name: text }))}
-              style={{
-                backgroundColor: COLORS.inputBg,
-                borderRadius: 12,
-                padding: 16,
-                color: COLORS.text,
-                fontSize: 16,
-                borderWidth: 1,
-                borderColor: COLORS.border,
-              }}
-              placeholderTextColor={COLORS.textMuted}
-              placeholder="Enter your full name"
-            />
+            <View style={{
+              backgroundColor: colors.inputBg,
+              borderRadius: 16,
+              borderWidth: 1.5,
+              borderColor: colors.inputBorder,
+              flexDirection: 'row',
+              alignItems: 'center',
+              paddingHorizontal: 20,
+              height: 60,
+            }}>
+              <MaterialIcons name="person" size={22} color={colors.textMuted} />
+              <TextInput
+                placeholder="Enter your full name"
+                placeholderTextColor={colors.textMuted}
+                value={userData?.full_name || ''}
+                onChangeText={(text) => setUserData(prev => ({ ...prev, full_name: text }))}
+                style={{
+                  flex: 1,
+                  color: colors.text,
+                  fontSize: 17,
+                  marginLeft: 16,
+                  fontWeight: '500',
+                }}
+                autoCapitalize="words"
+              />
+            </View>
           </View>
 
-          <View>
+          {/* Username */}
+          <View style={{ marginBottom: 24 }}>
             <Text style={{
-              color: COLORS.textSecondary,
-              marginBottom: 8,
-              fontSize: 14,
+              color: colors.text,
+              fontSize: 17,
+              fontWeight: '600',
+              marginBottom: 12,
+              letterSpacing: -0.2,
             }}>
               Username
             </Text>
-            <TextInput
-              value={userData?.username || ''}
-              onChangeText={(text) => setUserData(prev => ({ ...prev, username: text }))}
-              style={{
-                backgroundColor: COLORS.inputBg,
-                borderRadius: 12,
-                padding: 16,
-                color: COLORS.text,
-                fontSize: 16,
-                borderWidth: 1,
-                borderColor: COLORS.border,
-              }}
-              placeholderTextColor={COLORS.textMuted}
-              placeholder="Enter your username"
-            />
+            <View style={{
+              backgroundColor: colors.inputBg,
+              borderRadius: 16,
+              borderWidth: 1.5,
+              borderColor: colors.inputBorder,
+              flexDirection: 'row',
+              alignItems: 'center',
+              paddingHorizontal: 20,
+              height: 60,
+            }}>
+              <MaterialIcons name="alternate-email" size={22} color={colors.textMuted} />
+              <TextInput
+                placeholder="Enter your username"
+                placeholderTextColor={colors.textMuted}
+                value={userData?.username || ''}
+                onChangeText={(text) => setUserData(prev => ({ ...prev, username: text.toLowerCase() }))}
+                style={{
+                  flex: 1,
+                  color: colors.text,
+                  fontSize: 17,
+                  marginLeft: 16,
+                  fontWeight: '500',
+                }}
+                autoCapitalize="none"
+              />
+            </View>
           </View>
 
-          <View>
+          {/* Bio */}
+          <View style={{ marginBottom: 24 }}>
             <Text style={{
-              color: COLORS.textSecondary,
-              marginBottom: 8,
-              fontSize: 14,
+              color: colors.text,
+              fontSize: 17,
+              fontWeight: '600',
+              marginBottom: 12,
+              letterSpacing: -0.2,
             }}>
               Bio
             </Text>
-            <TextInput
-              value={userData?.bio || ''}
-              onChangeText={(text) => setUserData(prev => ({ ...prev, bio: text }))}
-              style={{
-                backgroundColor: COLORS.inputBg,
-                borderRadius: 12,
-                padding: 16,
-                color: COLORS.text,
-                fontSize: 16,
-                borderWidth: 1,
-                borderColor: COLORS.border,
-                height: 120,
-                textAlignVertical: 'top',
-              }}
-              multiline
-              numberOfLines={4}
-              placeholderTextColor={COLORS.textMuted}
-              placeholder="Write something about yourself"
-            />
+            <View style={{
+              backgroundColor: colors.inputBg,
+              borderRadius: 16,
+              borderWidth: 1.5,
+              borderColor: colors.inputBorder,
+              paddingHorizontal: 20,
+              paddingVertical: 16,
+              minHeight: 100,
+            }}>
+              <TextInput
+                placeholder="Write something about yourself..."
+                placeholderTextColor={colors.textMuted}
+                value={userData?.bio || ''}
+                onChangeText={(text) => setUserData(prev => ({ ...prev, bio: text }))}
+                style={{
+                  color: colors.text,
+                  fontSize: 17,
+                  fontWeight: '500',
+                  textAlignVertical: 'top',
+                }}
+                multiline
+                numberOfLines={4}
+              />
+            </View>
           </View>
 
-          <View>
+          {/* Email (Read-only) */}
+          <View style={{ marginBottom: 24 }}>
             <Text style={{
-              color: COLORS.textSecondary,
-              marginBottom: 8,
-              fontSize: 14,
+              color: colors.text,
+              fontSize: 17,
+              fontWeight: '600',
+              marginBottom: 12,
+              letterSpacing: -0.2,
             }}>
               Email
             </Text>
-            <TextInput
-              value={userData?.email || ''}
-              editable={false}
+            <View style={{
+              backgroundColor: colors.cardBg,
+              borderRadius: 16,
+              borderWidth: 1.5,
+              borderColor: colors.border,
+              flexDirection: 'row',
+              alignItems: 'center',
+              paddingHorizontal: 20,
+              height: 60,
+              opacity: 0.7,
+            }}>
+              <MaterialIcons name="email" size={22} color={colors.textMuted} />
+              <Text style={{
+                flex: 1,
+                color: colors.textMuted,
+                fontSize: 17,
+                marginLeft: 16,
+                fontWeight: '500',
+              }}>
+                {userData?.email || 'No email'}
+              </Text>
+            </View>
+          </View>
+        </View>
+
+        {/* Interests Selection */}
+        <View style={{ marginBottom: 32 }}>
+          <Text style={{
+            color: colors.text,
+            fontSize: 20,
+            fontWeight: '700',
+            marginBottom: 8,
+            letterSpacing: -0.3,
+          }}>
+            Interests
+          </Text>
+          <Text style={{
+            color: colors.textMuted,
+            fontSize: 15,
+            marginBottom: 20,
+            fontWeight: '400',
+          }}>
+            Select up to 10 interests ({selectedInterests.length}/10 selected)
+          </Text>
+
+          <View style={{
+            flexDirection: 'row',
+            flexWrap: 'wrap',
+            marginHorizontal: -6,
+          }}>
+            {interestOptions.map((interest) => (
+              <TouchableOpacity
+                key={interest.id}
+                onPress={() => toggleInterest(interest.id)}
+                style={{
+                  backgroundColor: selectedInterests.includes(interest.id) 
+                    ? colors.selectedBg 
+                    : colors.unselectedBg,
+                  paddingHorizontal: 20,
+                  paddingVertical: 14,
+                  borderRadius: 28,
+                  margin: 6,
+                  borderWidth: 2,
+                  borderColor: selectedInterests.includes(interest.id) 
+                    ? colors.selectedBorder 
+                    : colors.unselectedBorder,
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  minHeight: 48,
+                  shadowColor: selectedInterests.includes(interest.id) ? colors.selectedBorder : 'transparent',
+                  shadowOffset: { width: 0, height: 3 },
+                  shadowOpacity: selectedInterests.includes(interest.id) ? 0.3 : 0,
+                  shadowRadius: 12,
+                  elevation: selectedInterests.includes(interest.id) ? 6 : 0,
+                }}
+              >
+                <Text style={{ fontSize: 18, marginRight: 8 }}>
+                  {interest.icon}
+                </Text>
+                <Text style={{
+                  color: selectedInterests.includes(interest.id) 
+                    ? colors.selectedText 
+                    : colors.unselectedText,
+                  fontSize: 15,
+                  fontWeight: '600',
+                  letterSpacing: -0.2,
+                }}>
+                  {interest.label}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        </View>
+
+        {/* Education Details */}
+        <View style={{ marginBottom: 40 }}>
+          <Text style={{
+            color: colors.text,
+            fontSize: 20,
+            fontWeight: '700',
+            marginBottom: 20,
+            letterSpacing: -0.3,
+          }}>
+            Education Details
+          </Text>
+
+          {/* College */}
+          <View style={{ marginBottom: 24 }}>
+            <Text style={{
+              color: colors.text,
+              fontSize: 17,
+              fontWeight: '600',
+              marginBottom: 12,
+              letterSpacing: -0.2,
+            }}>
+              College / University
+            </Text>
+            <View style={{
+              backgroundColor: colors.inputBg,
+              borderRadius: 16,
+              borderWidth: 1.5,
+              borderColor: colors.inputBorder,
+              flexDirection: 'row',
+              alignItems: 'center',
+              paddingHorizontal: 20,
+              height: 60,
+            }}>
+              <MaterialIcons name="school" size={22} color={colors.textMuted} />
+              <TextInput
+                placeholder="e.g., XYZ Institute of Technology"
+                placeholderTextColor={colors.textMuted}
+                value={userData?.college || ''}
+                onChangeText={(text) => setUserData(prev => ({ ...prev, college: text }))}
+                style={{
+                  flex: 1,
+                  color: colors.text,
+                  fontSize: 17,
+                  marginLeft: 16,
+                  fontWeight: '500',
+                }}
+                autoCapitalize="words"
+              />
+            </View>
+          </View>
+
+          {/* Branch */}
+          <View style={{ marginBottom: 24 }}>
+            <Text style={{
+              color: colors.text,
+              fontSize: 17,
+              fontWeight: '600',
+              marginBottom: 12,
+              letterSpacing: -0.2,
+            }}>
+              Branch / Course
+            </Text>
+            <View style={{
+              backgroundColor: colors.inputBg,
+              borderRadius: 16,
+              borderWidth: 1.5,
+              borderColor: colors.inputBorder,
+              flexDirection: 'row',
+              alignItems: 'center',
+              paddingHorizontal: 20,
+              height: 60,
+            }}>
+              <MaterialIcons name="book" size={22} color={colors.textMuted} />
+              <TextInput
+                placeholder="e.g., Computer Science Engineering"
+                placeholderTextColor={colors.textMuted}
+                value={userData?.branch || ''}
+                onChangeText={(text) => setUserData(prev => ({ ...prev, branch: text }))}
+                style={{
+                  flex: 1,
+                  color: colors.text,
+                  fontSize: 17,
+                  marginLeft: 16,
+                  fontWeight: '500',
+                }}
+                autoCapitalize="words"
+              />
+            </View>
+          </View>
+
+          {/* Graduation Year */}
+          <View style={{ marginBottom: 24 }}>
+            <Text style={{
+              color: colors.text,
+              fontSize: 17,
+              fontWeight: '600',
+              marginBottom: 12,
+              letterSpacing: -0.2,
+            }}>
+              Expected Graduation Year
+            </Text>
+            <TouchableOpacity
+              onPress={() => setShowYearPicker(true)}
               style={{
-                backgroundColor: COLORS.inputBg,
-                borderRadius: 12,
-                padding: 16,
-                color: COLORS.textMuted,
-                fontSize: 16,
-                borderWidth: 1,
-                borderColor: COLORS.border,
+                backgroundColor: colors.inputBg,
+                borderRadius: 16,
+                borderWidth: 1.5,
+                borderColor: colors.inputBorder,
+                flexDirection: 'row',
+                alignItems: 'center',
+                paddingHorizontal: 20,
+                height: 60,
               }}
-            />
+            >
+              <MaterialIcons name="event" size={22} color={colors.textMuted} />
+              <Text style={{
+                flex: 1,
+                color: userData?.passout_year ? colors.text : colors.textMuted,
+                fontSize: 17,
+                marginLeft: 16,
+                fontWeight: '500',
+              }}>
+                {userData?.passout_year || 'Select graduation year'}
+              </Text>
+              <AntDesign name="down" size={16} color={colors.textMuted} />
+            </TouchableOpacity>
           </View>
         </View>
       </ScrollView>
+
+      {/* Year Picker Modal */}
+      <Modal
+        visible={showYearPicker}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setShowYearPicker(false)}
+      >
+        <View style={{
+          flex: 1,
+          backgroundColor: colors.modalBg,
+          justifyContent: 'flex-end',
+        }}>
+          <View style={{
+            backgroundColor: colors.background,
+            borderTopLeftRadius: 24,
+            borderTopRightRadius: 24,
+            maxHeight: '60%',
+            paddingTop: 24,
+          }}>
+            {/* Modal Header */}
+            <View style={{
+              flexDirection: 'row',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              paddingHorizontal: 24,
+              paddingBottom: 16,
+              borderBottomWidth: 1,
+              borderBottomColor: colors.border,
+            }}>
+              <Text style={{
+                fontSize: 20,
+                fontWeight: '700',
+                color: colors.text,
+                letterSpacing: -0.3,
+              }}>
+                Select Graduation Year
+              </Text>
+              <TouchableOpacity
+                onPress={() => setShowYearPicker(false)}
+                style={{
+                  width: 32,
+                  height: 32,
+                  borderRadius: 16,
+                  backgroundColor: colors.cardBg,
+                  justifyContent: 'center',
+                  alignItems: 'center',
+                }}
+              >
+                <AntDesign name="close" size={18} color={colors.text} />
+              </TouchableOpacity>
+            </View>
+            
+            {/* Year List */}
+            <FlatList
+              data={passoutYears}
+              renderItem={renderYearItem}
+              keyExtractor={(item) => item.toString()}
+              showsVerticalScrollIndicator={false}
+              style={{ flexGrow: 0 }}
+            />
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 };

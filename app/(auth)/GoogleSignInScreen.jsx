@@ -65,7 +65,7 @@ export default function GoogleSignInScreen() {
     <View style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#000" />
       <Image source={require('../../assets/images/campus-connect-logo.png')} style={styles.logo} />
-      <Text style={styles.title}>CampusConnect</Text>
+      <Text style={styles.title}>SocialZ</Text>
       <Text style={styles.tagline}>Connect, share, and grow with your campus community.</Text>
       <TouchableOpacity style={styles.googleButton} onPress={handleGoogleSignIn} disabled={loading}>
         {loading ? (

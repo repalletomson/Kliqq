@@ -18,6 +18,15 @@ export async function createPost(postData, mediaFiles, user) {
     
     // Check authentication first
     const { data: { user: currentUser }, error: authError } = await supabase.auth.getUser();
+    
+    if (authError || !currentUser) {
+      console.error('❌ Authentication error:', authError);
+      console.error('❌ No authenticated user found');
+      throw new Error('User not authenticated');
+    }
+    
+    console.log('✅ Authenticated user ID:', currentUser.id);
+    console.log('✅ Passed user ID:', user?.uid);
 
     // Upload multiple images using TUS resumable upload (more reliable)
     if (mediaFiles && Array.isArray(mediaFiles) && mediaFiles.length > 0) {
@@ -51,9 +60,9 @@ export async function createPost(postData, mediaFiles, user) {
       }
     }
 
-    // Create post object
+    // Create post object - use the authenticated user's ID
     const post = {
-      user_id: user?.uid,
+      user_id: currentUser.id,
       title: postData?.title,
       content: postData?.content,
       images: imageUrls,

@@ -29,12 +29,13 @@ const COLORS = {
 };
 
 const DEFAULT_GROUPS = [
-  { id: 'projects', name: 'Projects', image: require('../../../assets/images/projects2.jpg') },
-  { id: 'movies', name: 'Movies', image: require('../../../assets/images/moviess.jpg') },
+  { id: 'projects', name: 'collegeClubs', image: require('../../../assets/images/placements.jpeg') },
+  { id: 'movies', name: 'Movies', image: require('../../../assets/images/CINEMA.jpeg') },
+  { id: 'placements', name: 'Placements', image: require('../../../assets/images/Placementss.jpeg') },
+  { id: 'funny', name: 'Fest&Events', image: require('../../../assets/images/Events.jpeg') },
+  { id: 'gaming', name: 'Gaming', image: require('../../../assets/images/Gaming.jpeg') },
   { id: 'coding', name: 'Coding', image: require('../../../assets/images/coding.jpg') },
-  { id: 'funny', name: 'Funny', image: require('../../../assets/images/funny.jpg') },
-  { id: 'gaming', name: 'Gaming', image: require('../../../assets/images/movies.jpg') },
-  { id: 'placements', name: 'Placements', image: require('../../../assets/images/placements.jpg') },
+
 ];
 
 const { width } = Dimensions.get('window');

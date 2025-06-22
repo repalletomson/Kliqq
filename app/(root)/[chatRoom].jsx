@@ -40,7 +40,7 @@ const COLORS = {
   inputBg: '#1A1A1A',
   accent: '#8B5CF6',
   messageOwn: '#232136',
-  messageOther: '#111111',
+  messageOther: '#1A1A1A',
   success: '#10B981',
   danger: '#E53E3E',
   shadow: 'rgba(0, 0, 0, 0.3)',
@@ -51,6 +51,71 @@ const COLORS = {
 };
 
 const DEFAULT_PROFILE = 'https://assets.grok.com/users/8c354dfe-946c-4a32-b2de-5cb3a8ab9776/generated/h4epnwdFODX6hW0L/image.jpg';
+
+const ChatOptionsModal = ({ visible, onClose, onBlockUser, recipientName }) => {
+  return (
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+      <View style={{
+        flex: 1,
+        justifyContent: 'center',
+        alignItems: 'center',
+        backgroundColor: 'rgba(0, 0, 0, 0.8)'
+      }}>
+        <View style={{
+          backgroundColor: COLORS.cardBg,
+          borderRadius: 16,
+          width: '85%',
+          maxWidth: 280,
+          borderWidth: 1,
+          borderColor: COLORS.border,
+          overflow: 'hidden',
+        }}>
+          <TouchableOpacity
+            onPress={() => {
+              onClose();
+              onBlockUser();
+            }}
+            style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              padding: 16,
+              borderBottomWidth: 1,
+              borderBottomColor: COLORS.border,
+            }}
+          >
+            <MaterialIcons name="block" size={22} color={COLORS.danger} />
+            <Text style={{
+              fontSize: 16,
+              fontWeight: '500',
+              color: COLORS.danger,
+              marginLeft: 12,
+            }}>
+              Block {recipientName}
+            </Text>
+          </TouchableOpacity>
+          
+          <TouchableOpacity
+            onPress={onClose}
+            style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              padding: 16,
+              justifyContent: 'center',
+            }}
+          >
+            <Text style={{
+              fontSize: 16,
+              fontWeight: '500',
+              color: COLORS.text,
+            }}>
+              Cancel
+            </Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    </Modal>
+  );
+};
 
 const BlockUserModal = ({ visible, onClose, onBlock, recipientName }) => {
   return (
@@ -158,6 +223,7 @@ export default function ChatRoom() {
   const [replyingTo, setReplyingTo] = useState(null);
   const [isTyping, setIsTyping] = useState(false);
   const [showBlockModal, setShowBlockModal] = useState(false);
+  const [showOptionsModal, setShowOptionsModal] = useState(false);
   const [messageText, setMessageText] = useState('');
   const scrollViewRef = useRef(null);
   const lastMessageRef = useRef(null);
@@ -204,18 +270,7 @@ export default function ChatRoom() {
     try {
       const { data, error } = await supabase
         .from('users')
-        .select(`
-          id,
-          username,
-          full_name,
-          profile_image,
-          college,
-          branch,
-          passout_year,
-          bio,
-          last_seen,
-          is_online
-        `)
+        .select('*') // Fetch all fields from users table
         .eq('id', userId)
         .single();
 
@@ -234,11 +289,16 @@ export default function ChatRoom() {
         profileImage: data.profile_image,
         profile_image: data.profile_image,
         photoURL: data.profile_image,
+        profile_initials: data.profile_initials,
         college: data.college,
         branch: data.branch,
         passout_year: data.passout_year,
         bio: data.bio,
         about: data.bio,
+        interests: data.interests,
+        created_at: data.created_at,
+        updated_at: data.updated_at,
+        expo_push_token: data.expo_push_token,
         lastSeen: data.last_seen ? dayjs(data.last_seen).fromNow() : 'Unknown',
         isOnline: data.is_online || false
       };
@@ -369,7 +429,8 @@ export default function ChatRoom() {
     try {
       const messageData = {
         text: encryptMessage(messageText),
-        sender: currentUserId,
+        senderId: currentUserId,
+        sender: currentUserId, // Keep both for compatibility
         name: user.displayName || user.full_name || 'User',
         userAvatar: user.photoURL || user.profile_image || null,
         timestamp: serverTimestamp(),
@@ -448,14 +509,14 @@ export default function ChatRoom() {
         }}>
           <Text style={{
             color: '#FFFFFF',
-            fontSize: 16,
+            fontSize: 14,
             lineHeight: 20,
             fontFamily: isCurrentUser ? 'GeneralSans-Medium' : 'GeneralSans-Regular',
           }}>
             {message.text || message.content}
           </Text>
           
-          <Text style={{
+          {/* <Text style={{
             color: isCurrentUser ? 'rgba(255,255,255,0.7)' : 'rgba(255,255,255,0.6)',
             fontSize: 12,
             marginTop: 4,
@@ -463,7 +524,7 @@ export default function ChatRoom() {
             fontFamily: 'GeneralSans-Regular',
           }}>
             {formatMessageTime(message.timestamp)}
-          </Text>
+          </Text> */}
         </View>
       </View>
     );
@@ -520,7 +581,7 @@ export default function ChatRoom() {
       </View>
       
       <TouchableOpacity
-        onPress={() => setShowBlockModal(true)}
+        onPress={() => setShowOptionsModal(true)}
         style={{ padding: 8 }}
       >
         <Ionicons name="ellipsis-vertical" size={20} color={COLORS.text} />
@@ -618,7 +679,63 @@ export default function ChatRoom() {
                     </Text>
                   </View>
                 )}
-                <MessageBubble message={message} />
+                <View>
+                  <View style={{
+                    flexDirection: message.senderId === currentUserId ? "row-reverse" : "row",
+                    alignItems: "flex-end",
+                    marginHorizontal: 16,
+                    marginVertical: 4,
+                  }}>
+                    
+
+                    <View style={{ 
+                      alignItems: message.senderId === currentUserId ? "flex-end" : "flex-start",
+                      maxWidth: "80%",
+                    }}>
+                      
+
+                      {/* Message Bubble */}
+                      <View style={{
+                        backgroundColor: message.senderId === currentUserId ? COLORS.accent : COLORS.messageOther,
+                        borderRadius: 16,
+                        paddingHorizontal: 12,
+                        paddingVertical: 8,
+                        borderTopRightRadius: message.senderId === currentUserId ? 4 : 16,
+                        borderTopLeftRadius: message.senderId === currentUserId ? 16 : 4,
+                        shadowColor: "#000",
+                        shadowOffset: { width: 0, height: 1 },
+                        shadowOpacity: 0.05,
+                        shadowRadius: 1,
+                        elevation: 1,
+                        maxWidth: "100%",
+                      }}>
+                        <Text style={{ 
+                          fontSize: 13, 
+                          color: "#FFFFFF", 
+                          lineHeight: 18,
+                          fontWeight: "400",
+                        }}>
+                          {message.text || message.content || message.message || message.body || "No content"}
+                        </Text>
+                      </View>
+
+                      {/* Timestamp */}
+                      <View style={{
+                        alignItems: message.senderId === currentUserId ? "flex-end" : "flex-start",
+                        marginTop: 4,
+                        marginHorizontal: 4,
+                      }}>
+                        <Text style={{ 
+                          fontSize: 10, 
+                          color: COLORS.textSecondary,
+                          fontWeight: "400",
+                        }}>
+                          {formatMessageTime(message.timestamp)}
+                        </Text>
+                      </View>
+                    </View>
+                  </View>
+                </View>
               </View>
             );
           })}
@@ -670,6 +787,13 @@ export default function ChatRoom() {
             </TouchableOpacity>
           </View>
         </KeyboardAvoidingView>
+
+        <ChatOptionsModal
+          visible={showOptionsModal}
+          onClose={() => setShowOptionsModal(false)}
+          onBlockUser={() => setShowBlockModal(true)}
+          recipientName={recipient?.fullName}
+        />
 
         <BlockUserModal
           visible={showBlockModal}

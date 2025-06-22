@@ -485,16 +485,16 @@ export const MessageItem = React.memo(
 
                 {/* Message content - FIXED TEXT DISPLAY */}
                 <Text style={{ 
-                  fontSize: 15, 
+                  fontSize: 13, 
                   color: isOwnMessage ? "#FFFFFF" : COLORS.textPrimary, 
-                  lineHeight: 20,
+                  lineHeight: 18,
                   fontWeight: "400",
                   flexShrink: 1,
                 }}>
                   {decryptedText}
                   {item.edited && (
                     <Text style={{ 
-                      fontSize: 11, 
+                      fontSize: 10, 
                       color: isOwnMessage ? "rgba(255,255,255,0.5)" : COLORS.textSecondary,
                       fontStyle: "italic",
                     }}>
@@ -508,11 +508,12 @@ export const MessageItem = React.memo(
               <View style={{
                 flexDirection: "row",
                 alignItems: "center",
-                marginTop: 2,
-                marginHorizontal: 2,
+                marginTop: 4,
+                marginHorizontal: 4,
+                justifyContent: isOwnMessage ? "flex-end" : "flex-start",
               }}>
                 <Text style={{ 
-                  fontSize: 11, 
+                  fontSize: 10, 
                   color: COLORS.textSecondary,
                   fontWeight: "400",
                 }}>
@@ -522,7 +523,7 @@ export const MessageItem = React.memo(
                 {isOwnMessage && recipientId && (
                   <Ionicons
                     name={item.readBy?.[recipientId] ? "checkmark-done" : "checkmark"}
-                    size={12}
+                    size={10}
                     color={item.readBy?.[recipientId] ? COLORS.accent : COLORS.textSecondary}
                     style={{ marginLeft: 4 }}
                   />

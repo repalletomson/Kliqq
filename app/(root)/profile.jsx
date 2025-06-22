@@ -217,7 +217,7 @@ const Profile = () => {
         flexDirection: 'row',
         justifyContent: 'space-between',
         alignItems: 'center',
-        paddingTop: Platform.OS === 'ios' ? 50 : 40,
+        paddingTop: Platform.OS === 'ios' ? 45 : 25,
         paddingHorizontal: 20,
         paddingBottom: 16,
       }}>
@@ -226,25 +226,23 @@ const Profile = () => {
           fontWeight: '700',
           color: COLORS.text,
         }}>
-          Kliq
+          SocialZ
         </Text>
-        <View style={{ flexDirection: 'row', gap: 16 }}>
-          <TouchableOpacity
-            onPress={() => router.push('/(root)/settings')}
-            style={{
-              width: 40,
-              height: 40,
-              borderRadius: 20,
-              backgroundColor: COLORS.cardBg,
-              alignItems: 'center',
-              justifyContent: 'center',
-              borderWidth: 1,
-              borderColor: COLORS.border,
-            }}
-          >
-            <Ionicons name="settings-outline" size={22} color={COLORS.text} />
-          </TouchableOpacity>
-        </View>
+        <TouchableOpacity
+          onPress={() => router.push('/(root)/settings')}
+          style={{
+            width: 40,
+            height: 40,
+            borderRadius: 20,
+            backgroundColor: COLORS.cardBg,
+            alignItems: 'center',
+            justifyContent: 'center',
+            borderWidth: 1,
+            borderColor: COLORS.border,
+          }}
+        >
+          <Ionicons name="settings-outline" size={22} color={COLORS.text} />
+        </TouchableOpacity>
       </View>
 
       <ScrollView
@@ -252,89 +250,139 @@ const Profile = () => {
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{ paddingBottom: 40 }}
       >
-        {/* Profile Info */}
+        {/* Profile Info - Twitter-like Layout */}
         <View style={{ paddingHorizontal: 20, marginBottom: 24 }}>
-          {/* Profile Image */}
-          <View style={{
-            width: 100,
-            height: 100,
-            borderRadius: 50,
-            backgroundColor: COLORS.cardBg,
-            alignSelf: 'center',
-            marginBottom: 16,
-            overflow: 'hidden'
-          }}>
-            <Image
-              source={{ 
-                uri: userData?.profile_image || 
-                     userData?.profileImage || 
-                     'https://cdn-icons-png.flaticon.com/512/149/149071.png'
-              }}
-              style={{ width: '100%', height: '100%' }}
-              resizeMode="cover"
-            />
-          </View>
-
-          {/* Name and Username */}
-          <Text style={{
-            fontSize: 24,
-            fontWeight: '700',
-            color: COLORS.text,
-            textAlign: 'center',
-            marginBottom: 4,
-          }}>
-            {userData?.full_name || userData?.fullName || 'User'}
-          </Text>
-          <Text style={{
-            fontSize: 16,
-            color: COLORS.textMuted,
-            textAlign: 'center',
-            marginBottom: 16,
-          }}>
-            @{userData?.username || 'username'}
-          </Text>
-
-          {/* Follow Stats */}
+          {/* Profile Header with Avatar and Edit Button */}
           <View style={{
             flexDirection: 'row',
-            justifyContent: 'center',
-            gap: 24,
-            marginBottom: 24,
+            justifyContent: 'space-between',
+            alignItems: 'flex-start',
+            marginBottom: 16,
           }}>
-            <TouchableOpacity>
-              <Text style={{ color: COLORS.text, fontSize: 16, fontWeight: '600', textAlign: 'center' }}>
-                1
+            {/* Left Side - Profile Avatar and Info */}
+            <View style={{ flex: 1 }}>
+              {/* Profile Image */}
+              <View style={{
+                width: 80,
+                height: 80,
+                borderRadius: 40,
+                backgroundColor: COLORS.cardBg,
+                marginBottom: 12,
+                overflow: 'hidden',
+                justifyContent: 'center',
+                alignItems: 'center',
+                borderWidth: 2,
+                borderColor: COLORS.accent,
+              }}>
+                {userData?.profile_image || userData?.profileImage ? (
+                  <Image
+                    source={{ 
+                      uri: userData?.profile_image || userData?.profileImage
+                    }}
+                    style={{ width: '100%', height: '100%' }}
+                    resizeMode="cover"
+                  />
+                ) : (
+                  <Text style={{
+                    color: COLORS.text,
+                    fontSize: 28,
+                    fontWeight: '800',
+                    letterSpacing: -0.5,
+                  }}>
+                    {userData?.profile_initials || userData?.full_name?.charAt(0) || 'U'}
+                  </Text>
+                )}
+              </View>
+
+              {/* Name and Username */}
+              <Text style={{
+                fontSize: 22,
+                fontWeight: '700',
+                color: COLORS.text,
+                marginBottom: 2,
+                letterSpacing: -0.3,
+              }}>
+                {userData?.full_name || userData?.fullName || 'User'}
               </Text>
-              <Text style={{ color: COLORS.textMuted, fontSize: 14 }}>following</Text>
-            </TouchableOpacity>
-            <TouchableOpacity>
-              <Text style={{ color: COLORS.text, fontSize: 16, fontWeight: '600', textAlign: 'center' }}>
-                0
+              <Text style={{
+                fontSize: 15,
+                color: COLORS.textMuted,
+                marginBottom: 8,
+                fontWeight: '400',
+              }}>
+                @{userData?.username || 'username'}
               </Text>
-              <Text style={{ color: COLORS.textMuted, fontSize: 14 }}>followers</Text>
+
+              {/* Bio */}
+              {userData?.bio && (
+                <Text style={{
+                  color: COLORS.textSecondary,
+                  fontSize: 15,
+                  lineHeight: 20,
+                  marginBottom: 12,
+                  fontWeight: '400',
+                }}>
+                  {userData.bio}
+                </Text>
+              )}
+
+              {/* College and Education Info */}
+              {/* <View style={{ flexDirection: 'column', gap: 6 }}>
+                {(userData?.college || userData?.branch) && (
+                  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                    <MaterialIcons name="school" size={16} color={COLORS.textMuted} />
+                    <Text style={{
+                      color: COLORS.textMuted,
+                      fontSize: 14,
+                      marginLeft: 6,
+                      fontWeight: '400',
+                    }}>
+                      {userData?.college && userData?.branch 
+                        ? `${userData.branch} at ${userData.college}`
+                        : userData?.college || userData?.branch}
+                    </Text>
+                  </View>
+                )}
+                
+                {userData?.passout_year && (
+                  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                    <MaterialIcons name="event" size={16} color={COLORS.textMuted} />
+                    <Text style={{
+                      color: COLORS.textMuted,
+                      fontSize: 14,
+                      marginLeft: 6,
+                      fontWeight: '400',
+                    }}>
+                      Class of {userData.passout_year}
+                    </Text>
+                  </View>
+                )}
+              </View> */}
+            </View>
+
+            {/* Right Side - Edit Profile Button */}
+            <TouchableOpacity
+              onPress={() => router.push('/(root)/editprofile')}
+              style={{
+                backgroundColor: 'transparent',
+                borderWidth: 1,
+                borderColor: COLORS.textMuted,
+                borderRadius: 20,
+                paddingHorizontal: 16,
+                paddingVertical: 8,
+                marginTop: 8,
+              }}
+            >
+              <Text style={{
+                color: COLORS.text,
+                fontSize: 14,
+                fontWeight: '600',
+                letterSpacing: -0.2,
+              }}>
+                Edit profile
+              </Text>
             </TouchableOpacity>
           </View>
-
-          {/* Edit Profile Button */}
-          <TouchableOpacity
-            onPress={() => router.push('/(root)/editprofile')}
-            style={{
-              backgroundColor: COLORS.cardBg,
-              paddingVertical: 12,
-              borderRadius: 25,
-              borderWidth: 1,
-              borderColor: COLORS.border,
-            }}
-          >
-            <Text style={{
-              color: COLORS.text,
-              fontSize: 15,
-              fontWeight: '600',
-              textAlign: 'center',
-            }}>
-              Edit Profile
-            </Text>
-          </TouchableOpacity>
         </View>
 
         {/* Tabs */}
@@ -342,7 +390,8 @@ const Profile = () => {
           flexDirection: 'row',
           paddingHorizontal: 20,
           marginBottom: 16,
-          gap: 12,
+          borderBottomWidth: 1,
+          borderBottomColor: COLORS.border,
         }}>
           {tabs.map((tab) => (
             <TouchableOpacity
@@ -350,11 +399,9 @@ const Profile = () => {
               onPress={() => setActiveTab(tab)}
               style={{
                 flex: 1,
-                paddingVertical: 12,
-                borderRadius: 12,
-                backgroundColor: activeTab === tab ? COLORS.cardBg : 'transparent',
-                borderWidth: 1,
-                borderColor: activeTab === tab ? COLORS.accent : COLORS.border,
+                paddingVertical: 16,
+                borderBottomWidth: 2,
+                borderBottomColor: activeTab === tab ? COLORS.accent : 'transparent',
               }}
             >
               <Text style={{
@@ -373,86 +420,130 @@ const Profile = () => {
         <View style={{ paddingHorizontal: 20 }}>
           {activeTab === 'About' && (
             <View style={{ gap: 16 }}>
-              {userData?.bio && (
+              {/* Education Details Card */}
+              {(userData?.college || userData?.branch || userData?.passout_year) && (
                 <View style={{
                   backgroundColor: COLORS.cardBg,
-                  padding: 16,
                   borderRadius: 12,
                   borderWidth: 1,
                   borderColor: COLORS.border,
+                  overflow: 'hidden',
                 }}>
-                  <Text style={{ color: COLORS.textSecondary, fontSize: 15, lineHeight: 22 }}>
-                    {userData.bio}
-                  </Text>
+                  <View style={{
+                    padding: 16,
+                    borderBottomWidth: 1,
+                    borderBottomColor: COLORS.border,
+                  }}>
+                    <Text style={{
+                      color: COLORS.text,
+                      fontSize: 16,
+                      fontWeight: '600',
+                      marginBottom: 8,
+                    }}>
+                      Education
+                    </Text>
+                  </View>
+                  
+                  {userData?.college && (
+                    <View style={{
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      padding: 16,
+                      borderBottomWidth: userData?.branch || userData?.passout_year ? 1 : 0,
+                      borderBottomColor: COLORS.border,
+                    }}>
+                      <Ionicons name="school-outline" size={20} color={COLORS.accent} />
+                      <View style={{ marginLeft: 12, flex: 1 }}>
+                        <Text style={{ color: COLORS.textSecondary, fontSize: 15, fontWeight: '500' }}>
+                          {userData.college}
+                        </Text>
+                        <Text style={{ color: COLORS.textMuted, fontSize: 13 }}>
+                          College/University
+                        </Text>
+                      </View>
+                    </View>
+                  )}
+                  
+                  {userData?.branch && (
+                    <View style={{
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      padding: 16,
+                      borderBottomWidth: userData?.passout_year ? 1 : 0,
+                      borderBottomColor: COLORS.border,
+                    }}>
+                      <Ionicons name="book-outline" size={20} color={COLORS.accent} />
+                      <View style={{ marginLeft: 12, flex: 1 }}>
+                        <Text style={{ color: COLORS.textSecondary, fontSize: 15, fontWeight: '500' }}>
+                          {userData.branch}
+                        </Text>
+                        <Text style={{ color: COLORS.textMuted, fontSize: 13 }}>
+                          Branch/Course
+                        </Text>
+                      </View>
+                    </View>
+                  )}
+
+                  {userData?.passout_year && (
+                    <View style={{
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      padding: 16,
+                    }}>
+                      <Ionicons name="calendar-outline" size={20} color={COLORS.accent} />
+                      <View style={{ marginLeft: 12, flex: 1 }}>
+                        <Text style={{ color: COLORS.textSecondary, fontSize: 15, fontWeight: '500' }}>
+                          Class of {userData.passout_year}
+                        </Text>
+                        <Text style={{ color: COLORS.textMuted, fontSize: 13 }}>
+                          Expected Graduation
+                        </Text>
+                      </View>
+                    </View>
+                  )}
                 </View>
               )}
-              
-              {/* College Info */}
-              <View style={{
-                backgroundColor: COLORS.cardBg,
-                borderRadius: 12,
-                borderWidth: 1,
-                borderColor: COLORS.border,
-                overflow: 'hidden',
-              }}>
-                {userData?.college?.name && (
-                  <View style={{
-                    flexDirection: 'row',
-                    alignItems: 'center',
-                    padding: 16,
-                    borderBottomWidth: 1,
-                    borderBottomColor: COLORS.border,
-                  }}>
-                    <Ionicons name="school-outline" size={20} color={COLORS.accent} />
-                    <Text style={{ color: COLORS.textSecondary, fontSize: 15, marginLeft: 12 }}>
-                      {userData.college.name}
-                    </Text>
-                  </View>
-                )}
-                
-                {userData?.branch && (
-                  <View style={{
-                    flexDirection: 'row',
-                    alignItems: 'center',
-                    padding: 16,
-                    borderBottomWidth: 1,
-                    borderBottomColor: COLORS.border,
-                  }}>
-                    <Ionicons name="book-outline" size={20} color={COLORS.accent} />
-                    <Text style={{ color: COLORS.textSecondary, fontSize: 15, marginLeft: 12 }}>
-                      {userData.branch}
-                    </Text>
-                  </View>
-                )}
 
-                {userData?.passout_year && (
+              {/* Interests Card */}
+              {userData?.interests && (
+                <View style={{
+                  backgroundColor: COLORS.cardBg,
+                  borderRadius: 12,
+                  borderWidth: 1,
+                  borderColor: COLORS.border,
+                  overflow: 'hidden',
+                }}>
                   <View style={{
-                    flexDirection: 'row',
-                    alignItems: 'center',
                     padding: 16,
                     borderBottomWidth: 1,
                     borderBottomColor: COLORS.border,
                   }}>
-                    <Ionicons name="calendar-outline" size={20} color={COLORS.accent} />
-                    <Text style={{ color: COLORS.textSecondary, fontSize: 15, marginLeft: 12 }}>
-                      Class of {userData.passout_year}
+                    <Text style={{
+                      color: COLORS.text,
+                      fontSize: 16,
+                      fontWeight: '600',
+                      marginBottom: 8,
+                    }}>
+                      Interests
                     </Text>
                   </View>
-                )}
-
-                {userData?.interests && (
                   <View style={{
                     flexDirection: 'row',
                     alignItems: 'center',
                     padding: 16,
                   }}>
                     <Ionicons name="heart-outline" size={20} color={COLORS.accent} />
-                    <Text style={{ color: COLORS.textSecondary, fontSize: 15, marginLeft: 12 }}>
-                      {Array.isArray(userData.interests) ? userData.interests.join(', ') : userData.interests}
+                    <Text style={{ color: COLORS.textSecondary, fontSize: 15, marginLeft: 12, flex: 1, lineHeight: 22 }}>
+                      {Array.isArray(userData.interests) ? 
+                        userData.interests.map(interest => 
+                          interest.charAt(0).toUpperCase() + interest.slice(1)
+                        ).join(', ') : 
+                        userData.interests
+                      }
                     </Text>
                   </View>
-                )}
-              </View>
+                </View>
+              )}
             </View>
           )}
 

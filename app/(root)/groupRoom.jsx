@@ -413,18 +413,7 @@ const GroupRoomScreen = () => {
     try {
       const { data, error } = await supabase
         .from('users')
-        .select(`
-          id,
-          username,
-          full_name,
-          profile_image,
-          college,
-          branch,
-          passout_year,
-          bio,
-          last_seen,
-          is_online
-        `)
+        .select('*') // Fetch all fields from users table
         .eq('id', userId)
         .maybeSingle();
 
@@ -437,14 +426,21 @@ const GroupRoomScreen = () => {
         id: data.id,
         uid: data.id,
         fullName: data.full_name,
+        full_name: data.full_name,
         displayName: data.full_name,
         username: data.username,
         profileImage: data.profile_image,
+        profile_image: data.profile_image,
         photoURL: data.profile_image,
+        profile_initials: data.profile_initials,
         college: data.college,
         branch: data.branch,
         passout_year: data.passout_year,
         bio: data.bio,
+        interests: data.interests,
+        created_at: data.created_at,
+        updated_at: data.updated_at,
+        expo_push_token: data.expo_push_token,
         lastSeen: data.last_seen ? dayjs(data.last_seen).fromNow() : 'Unknown',
         isOnline: data.is_online || false
       };
@@ -766,7 +762,7 @@ const GroupRoomScreen = () => {
     );
   });
 
-  // Enhanced WhatsApp-like Message Bubble Component
+  // Enhanced Message Bubble Component - Matching ChatRoom Style
   const MessageBubble = React.memo(({ message }) => {
     const isCurrentUser = message.senderId === user?.uid;
 
@@ -778,110 +774,104 @@ const GroupRoomScreen = () => {
     };
 
     return (
-      <View style={{
-        alignSelf: isCurrentUser ? 'flex-end' : 'flex-start',
-        marginBottom: 4,
-        maxWidth: width * 0.8,
-        marginHorizontal: 8,
-      }}>
-        {/* Reply Section */}
-        {message.replyTo && (
-          <View style={{
-            backgroundColor: isCurrentUser ? 'rgba(255,255,255,0.1)' : COLORS.replyBg,
-            borderRadius: 8,
-            paddingHorizontal: 12,
-            paddingVertical: 8,
-            marginBottom: 2,
-            borderLeftWidth: 3,
-            borderLeftColor: COLORS.replyBorder,
-            marginHorizontal: 4,
+      <View>
+        <View style={{
+          flexDirection: isCurrentUser ? "row-reverse" : "row",
+          alignItems: "flex-end",
+          marginHorizontal: 16,
+          marginVertical: 4,
+        }}>
+          <View style={{ 
+            alignItems: isCurrentUser ? "flex-end" : "flex-start",
+            maxWidth: "80%",
           }}>
-            <Text style={{
-              color: COLORS.accent,
-              fontSize: 12,
-              fontWeight: '600',
-              marginBottom: 2,
-            }}>
-              {message.replyTo.senderName || 'User'}
-            </Text>
-            <Text style={{
-              color: isCurrentUser ? 'rgba(255,255,255,0.8)' : COLORS.textSecondary,
-              fontSize: 13,
-            }} numberOfLines={2}>
-              {truncateMessage(message.replyTo.text, 50)}
-            </Text>
-          </View>
-        )}
-
-        {!isCurrentUser && (
-          <Text style={{
-            color: COLORS.accent,
-            fontSize: 12,
-            marginBottom: 4,
-            fontWeight: '600',
-            marginLeft: 12,
-          }}>
-            {message.senderName || 'User'}
-          </Text>
-        )}
-        
-        <TouchableOpacity 
-          onLongPress={handleLongPress}
-          activeOpacity={0.7}
-          style={{
-            backgroundColor: isCurrentUser ? COLORS.messageOwn : COLORS.messageOther,
-            borderRadius: 12,
-            paddingHorizontal: 12,
-            paddingVertical: 8,
-            paddingBottom: 18,
-            shadowColor: '#000',
-            shadowOffset: { width: 0, height: 1 },
-            shadowOpacity: 0.1,
-            shadowRadius: 2,
-            elevation: 1,
-            position: 'relative',
-            minWidth: 100,
-            // WhatsApp-like tail effect
-            ...(isCurrentUser ? {
-              borderBottomRightRadius: 4,
-            } : {
-              borderBottomLeftRadius: 4,
-            }),
-          }}
-        >
-          <Text style={{
-            color: isCurrentUser ? '#FFFFFF' : COLORS.text,
-            fontSize: 15,
-            lineHeight: 20,
-            marginBottom: 2,
-          }}>
-            {message.text}
-          </Text>
-          
-          {/* Time and status */}
-          <View style={{
-            position: 'absolute',
-            bottom: 4,
-            right: 8,
-            flexDirection: 'row',
-            alignItems: 'center',
-          }}>
-            <Text style={{
-              color: isCurrentUser ? 'rgba(255,255,255,0.7)' : COLORS.textMuted,
-              fontSize: 11,
-              marginRight: isCurrentUser ? 4 : 0,
-            }}>
-              {formatMessageTime(message.timestamp)}
-            </Text>
-            {isCurrentUser && (
-              <Ionicons 
-                name="checkmark-done" 
-                size={14} 
-                color={COLORS.readTick}
-              />
+            {/* Sender name for other users */}
+            {!isCurrentUser && message.senderName && (
+              <Text style={{
+                fontSize: 12,
+                fontWeight: "500",
+                color: COLORS.textSecondary,
+                marginBottom: 2,
+                marginLeft: 2,
+              }}>
+                {message.senderName}
+              </Text>
             )}
+
+            {/* Message Bubble */}
+            <TouchableOpacity
+              onLongPress={handleLongPress}
+              activeOpacity={0.8}
+              style={{
+                backgroundColor: isCurrentUser ? COLORS.accent : COLORS.messageOther,
+                borderRadius: 16,
+                paddingHorizontal: 12,
+                paddingVertical: 8,
+                borderTopRightRadius: isCurrentUser ? 4 : 16,
+                borderTopLeftRadius: isCurrentUser ? 16 : 4,
+                shadowColor: "#000",
+                shadowOffset: { width: 0, height: 1 },
+                shadowOpacity: 0.05,
+                shadowRadius: 1,
+                elevation: 1,
+                maxWidth: "100%",
+              }}
+            >
+              {/* Reply indicator */}
+              {message.replyTo && (
+                <View style={{ 
+                  borderLeftWidth: 2, 
+                  borderLeftColor: isCurrentUser ? "rgba(255,255,255,0.4)" : COLORS.accent, 
+                  paddingLeft: 8, 
+                  marginBottom: 6,
+                  backgroundColor: isCurrentUser ? "rgba(255,255,255,0.08)" : "rgba(139, 92, 246, 0.08)",
+                  borderRadius: 6,
+                  padding: 6,
+                }}>
+                  <Text style={{ 
+                    fontSize: 11, 
+                    color: isCurrentUser ? "rgba(255,255,255,0.7)" : COLORS.textSecondary,
+                    fontWeight: "500",
+                  }}>
+                    {message.replyTo.senderName || 'User'}
+                  </Text>
+                  <Text style={{ 
+                    fontSize: 12, 
+                    color: isCurrentUser ? "rgba(255,255,255,0.8)" : COLORS.text, 
+                    marginTop: 1,
+                  }} numberOfLines={1}>
+                    {truncateMessage(message.replyTo.text, 50)}
+                  </Text>
+                </View>
+              )}
+
+              {/* Message content */}
+              <Text style={{ 
+                fontSize: 13, 
+                color: "#FFFFFF", 
+                lineHeight: 18,
+                fontWeight: "400",
+              }}>
+                {message.text}
+              </Text>
+            </TouchableOpacity>
+
+            {/* Timestamp and read status */}
+            <View style={{
+              alignItems: isCurrentUser ? "flex-end" : "flex-start",
+              marginTop: 4,
+              marginHorizontal: 4,
+            }}>
+              <Text style={{ 
+                fontSize: 10, 
+                color: COLORS.textSecondary,
+                fontWeight: "400",
+              }}>
+                {formatMessageTime(message.timestamp)}
+              </Text>
+            </View>
           </View>
-        </TouchableOpacity>
+        </View>
       </View>
     );
   });
@@ -936,15 +926,26 @@ const GroupRoomScreen = () => {
                 borderRadius: 16,
               }}
             >
-              <Image
-                source={member.profileImage ? { uri: member.photoURL } : DEFAULT_PROFILE}
-                style={{
-                  width: 48,
-                  height: 48,
-                  borderRadius: 24,
-                  marginRight: 12,
-                }}
-              />
+              <View style={{
+                width: 48,
+                height: 48,
+                borderRadius: 24,
+                backgroundColor: COLORS.cardBg,
+                justifyContent: 'center',
+                alignItems: 'center',
+                marginRight: 12,
+                borderWidth: 2,
+                borderColor: COLORS.accent,
+              }}>
+                <Text style={{
+                  color: COLORS.text,
+                  fontSize: 16,
+                  fontWeight: '800',
+                  letterSpacing: -0.3,
+                }}>
+                  {member.profile_initials || member.full_name?.charAt(0) || member.fullName?.charAt(0) || 'U'}
+                </Text>
+              </View>
               <View style={{ flex: 1 }}>
                 <Text style={{
                   color: COLORS.text,

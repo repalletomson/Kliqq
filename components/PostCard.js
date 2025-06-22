@@ -934,15 +934,15 @@ const PostCard = ({ post, isDetailView = false, isHotPost = false, enableRealTim
 
       <View
         style={{
-          backgroundColor: colors.cardBackground,
+          backgroundColor:'#121212',
           marginHorizontal: 0,
-          marginBottom: 20,
+          marginBottom: 0,
           borderRadius: 0,
-          shadowColor: colors.shadow,
-          shadowOffset: { width: 0, height: 4 },
-          shadowOpacity: 1,
-          shadowRadius: 15,
-          elevation: 5,
+          shadowColor: 'transparent',
+          shadowOffset: { width: 0, height: 0 },
+          shadowOpacity: 0,
+          shadowRadius: 0,
+          elevation: 0,
         }}
       >
         {/* User Header */}
@@ -950,8 +950,9 @@ const PostCard = ({ post, isDetailView = false, isHotPost = false, enableRealTim
           flexDirection: "row", 
           justifyContent: "space-between", 
           alignItems: "center", 
-          padding: 20,
-          paddingBottom: 16
+          paddingHorizontal: 16,
+          paddingVertical: 16,
+          paddingBottom: 12
         }}>
           <TouchableOpacity 
             style={{ flexDirection: "row", alignItems: "center", flex: 1 }}
@@ -963,34 +964,57 @@ const PostCard = ({ post, isDetailView = false, isHotPost = false, enableRealTim
               }
             }}
           >
-            <Image
-              source={{ uri: post.userAvatar || post.user_avatar || DEFAULT_AVATAR }}
-              style={{
-                width: 52,
-                height: 52,
-                borderRadius: 26,
-                marginRight: 14,
-              }}
-            />
+            {/* Profile initials instead of image */}
+            <View style={{
+              width: 48,
+              height: 48,
+              borderRadius: 24,
+              backgroundColor: colors.inputBg,
+              justifyContent: 'center',
+              alignItems: 'center',
+              marginRight: 12,
+              borderWidth: 2,
+              borderColor: colors.accent,
+            }}>
+              <Text style={{
+                color: colors.text,
+                fontSize: 16,
+                fontWeight: '800',
+                letterSpacing: -0.3,
+              }}>
+                {post.profile_initials || post.user_initials || 
+                 (post.userName || post.user_name || 'A').charAt(0).toUpperCase()}
+              </Text>
+            </View>
             <View style={{ flex: 1 }}>
               <Text
                 style={{
-                  fontWeight: "700",
-                  fontSize: 17,
+                  fontWeight: "600",
+                  fontSize: 16,
                   color: isHotPost ? colors.accent : colors.text,
-                  marginBottom: 3,
+                  marginBottom: 2,
                 }}
               >
-                {post.userName || post.user_name || 'Anonymous'}
-                {isHotPost && <Text style={{ fontSize: 14, color: colors.accent, marginLeft: 8 }}>{" 🔥"}</Text>}
+                @{post.username || post.user_username || (post.userName || post.user_name || 'anonymous').toLowerCase()}
+                {isHotPost && <Text style={{ fontSize: 12, color: colors.accent, marginLeft: 6 }}>{" 🔥"}</Text>}
               </Text>
               
+              {/* Show full name as secondary text */}
+              {/* <Text style={{ 
+                fontSize: 12, 
+                color: colors.textMuted, 
+                fontWeight: '500',
+                marginBottom: 2 
+              }}>
+                {post.userName || post.user_name || 'Anonymous'}
+              </Text>
+               */}
               {/* Show college name for non-anonymous posts */}
               {(post.userName !== 'Anonymous' && post.user_name !== 'Anonymous') && (post.college || post.userCollege) && (
                 <Text style={{ 
-                  fontSize: 13, 
+                  fontSize: 11, 
                   color: colors.textMuted, 
-                  fontWeight: '500',
+                  fontWeight: '400',
                   marginBottom: 2 
                 }}>
                   {typeof (post.college || post.userCollege) === 'object' 
@@ -1026,7 +1050,7 @@ const PostCard = ({ post, isDetailView = false, isHotPost = false, enableRealTim
         </View>
 
         {/* Post Content */}
-        <View style={{ paddingHorizontal: 20, paddingBottom: 16 }}>
+        <View style={{ paddingHorizontal: 16, paddingBottom: 12 }}>
 
 
         <TouchableOpacity
@@ -1070,9 +1094,9 @@ const PostCard = ({ post, isDetailView = false, isHotPost = false, enableRealTim
             flexDirection: "row",
             justifyContent: "space-between",
             alignItems: "center",
-            paddingHorizontal: 20,
-            paddingVertical: 16,
-            marginTop: 8,
+            paddingHorizontal: 16,
+            paddingVertical: 12,
+            marginTop: 4,
           }}
         >
           <View style={{ flexDirection: "row", alignItems: "center" }}>
@@ -1192,10 +1216,10 @@ const PostCard = ({ post, isDetailView = false, isHotPost = false, enableRealTim
       
       {/* Light separation line */}
       <View style={{
-        height: 1,
-        backgroundColor: 'rgba(255, 255, 255, 0.1)',
-        marginHorizontal: 20,
-        marginBottom: 16,
+        height: 1.5,
+        backgroundColor: 'black',
+        marginHorizontal: 0,
+        marginBottom: 0,
       }} />
     </View>
   );

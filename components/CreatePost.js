@@ -252,6 +252,7 @@ const CreatePostScreen = ({ visible, onClose, onPostCreated }) => {
           mediaUrls: post.images || [],
           createdAt: new Date(),
           userId: user.uid,
+          profile_initials: user.profile_initials,  
           userName: isAnonymous ? 'Anonymous' : (user.fullName || user.full_name || 'Anonymous'),
           userAvatar: isAnonymous ? null : (user.profileImage || user.profile_image || null),
           isAnonymous: isAnonymous
