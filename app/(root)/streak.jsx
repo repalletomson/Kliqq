@@ -13,13 +13,15 @@ const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
 
 const COLORS = {
   background: '#0D0D0D',
-  card: 'rgba(26, 26, 26, 0.8)',
-  cardBlur: 'rgba(255, 255, 255, 0.1)',
+  card: 'rgba(0, 0, 0, 0.85)',
+  cardBlur: 'rgba(0, 0, 0, 0.6)',
+  cardInner: 'rgba(20, 20, 20, 0.9)',
   text: '#FFFFFF',
-  textSecondary: '#A1A1AA',
-  accent: '#F97316',
-  accentLight: '#FDBA74',
-  border: 'rgba(255, 255, 255, 0.15)',
+  textSecondary: '#B8B8B8',
+  accent: '#DA70D6',  // Purple accent
+  accentLight: '#E6E6FA',  // Light lavender
+  border: 'rgba(218, 112, 214, 0.3)',  // Purple border
+  borderSecondary: 'rgba(255, 255, 255, 0.1)',
   gradientStart: '#E6E6FA',  // Light lavender
   gradientMiddle: '#DDA0DD',  // Plum
   gradientEnd: '#DA70D6',     // Orchid
@@ -46,7 +48,7 @@ const TimeLeftCard = ({ timeLeft }) => (
       tint="light"
     >
       <LinearGradient
-        colors={['rgba(255, 255, 255, 0.15)', 'rgba(255, 255, 255, 0.05)']}
+        colors={['rgba(0, 0, 0, 0.4)', 'rgba(0, 0, 0, 0.8)']}
         style={{
           position: 'absolute',
           top: 0,
@@ -57,10 +59,10 @@ const TimeLeftCard = ({ timeLeft }) => (
       />
       <View style={{
         borderWidth: 1,
-        borderColor: 'rgba(255, 255, 255, 0.2)',
+        borderColor: COLORS.border,
         borderRadius: 16,
         padding: 20,
-        backgroundColor: 'rgba(255, 255, 255, 0.1)',
+        backgroundColor: COLORS.cardInner,
         alignItems: 'center',
         width: '100%',
       }}>
@@ -208,7 +210,7 @@ const InfoCard = () => (
       tint="dark"
     >
       <LinearGradient
-        colors={['rgba(249, 115, 22, 0.15)', 'rgba(249, 115, 22, 0.05)']}
+        colors={['rgba(0, 0, 0, 0.3)', 'rgba(0, 0, 0, 0.7)']}
         style={{
           position: 'absolute',
           top: 0,
@@ -219,19 +221,21 @@ const InfoCard = () => (
       />
       <View style={{
         borderWidth: 1,
-        borderColor: 'rgba(249, 115, 22, 0.3)',
+        borderColor: COLORS.border,
         borderRadius: 16,
         padding: 16,
-        backgroundColor: 'rgba(249, 115, 22, 0.1)',
+        backgroundColor: COLORS.cardInner,
         flexDirection: 'row',
         alignItems: 'center',
         width: '100%',
       }}>
         <View style={{
-          backgroundColor: 'rgba(249, 115, 22, 0.2)',
+          backgroundColor: 'rgba(218, 112, 214, 0.2)',
           borderRadius: 20,
           padding: 8,
           marginRight: 16,
+          borderWidth: 1,
+          borderColor: 'rgba(218, 112, 214, 0.4)',
         }}>
           <MaterialCommunityIcons name="information-outline" size={24} color={COLORS.accent} />
         </View>
@@ -287,23 +291,23 @@ const WeekOverview = ({ activeDates }) => {
         intensity={30}
         tint="light"
       >
-        <LinearGradient
-          colors={['rgba(255, 255, 255, 0.12)', 'rgba(255, 255, 255, 0.03)']}
-          style={{
-            position: 'absolute',
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: 0,
-          }}
-        />
-        <View style={{
-          borderWidth: 1,
-          borderColor: 'rgba(255, 255, 255, 0.15)',
-          borderRadius: 16,
-          padding: 20,
-          backgroundColor: 'rgba(255, 255, 255, 0.08)',
-        }}>
+                 <LinearGradient
+           colors={['rgba(0, 0, 0, 0.3)', 'rgba(0, 0, 0, 0.7)']}
+           style={{
+             position: 'absolute',
+             top: 0,
+             left: 0,
+             right: 0,
+             bottom: 0,
+           }}
+         />
+         <View style={{
+           borderWidth: 1,
+           borderColor: COLORS.border,
+           borderRadius: 16,
+           padding: 20,
+           backgroundColor: COLORS.cardInner,
+         }}>
           <Text style={{ 
             color: COLORS.text, 
             fontSize: 16, 
@@ -335,16 +339,16 @@ const WeekOverview = ({ activeDates }) => {
                     width: 36,
                     height: 36,
                     borderRadius: 18,
-                    backgroundColor: isActive ? COLORS.accent : 'rgba(255, 255, 255, 0.15)',
+                    backgroundColor: isActive ? COLORS.accent : 'rgba(255, 255, 255, 0.1)',
                     justifyContent: 'center',
                     alignItems: 'center',
                     borderWidth: isActive ? 2 : 1,
-                    borderColor: isActive ? COLORS.accentLight : 'rgba(255, 255, 255, 0.2)',
+                    borderColor: isActive ? COLORS.accentLight : COLORS.borderSecondary,
                     elevation: isActive ? 4 : 2,
                     shadowColor: isActive ? COLORS.accent : '#000',
                     shadowOffset: { width: 0, height: 2 },
-                    shadowOpacity: isActive ? 0.6 : 0.3,
-                    shadowRadius: isActive ? 6 : 3,
+                    shadowOpacity: isActive ? 0.8 : 0.3,
+                    shadowRadius: isActive ? 8 : 3,
                   }}>
                     {isActive ? (
                       <Ionicons name="checkmark" size={22} color="#FFF" />
@@ -523,27 +527,29 @@ export default function StreakPage() {
                intensity={40}
                tint="light"
              >
-              <LinearGradient
-                colors={['rgba(255, 255, 255, 0.1)', 'rgba(255, 255, 255, 0.05)']}
-                style={{
-                  position: 'absolute',
-                  top: 0,
-                  left: 0,
-                  right: 0,
-                  bottom: 0,
-                }}
-              />
-              <TouchableOpacity 
-                onPress={safeBack} 
-                style={{ 
-                  position: 'absolute', 
-                  left: 20, 
-                  zIndex: 2,
-                  backgroundColor: 'rgba(255, 255, 255, 0.1)',
-                  borderRadius: 20,
-                  padding: 8,
-                }}
-              >
+                             <LinearGradient
+                 colors={['rgba(0, 0, 0, 0.4)', 'rgba(0, 0, 0, 0.8)']}
+                 style={{
+                   position: 'absolute',
+                   top: 0,
+                   left: 0,
+                   right: 0,
+                   bottom: 0,
+                 }}
+               />
+                             <TouchableOpacity 
+                 onPress={safeBack} 
+                 style={{ 
+                   position: 'absolute', 
+                   left: 20, 
+                   zIndex: 2,
+                   backgroundColor: 'rgba(0, 0, 0, 0.6)',
+                   borderRadius: 20,
+                   padding: 8,
+                   borderWidth: 1,
+                   borderColor: COLORS.border,
+                 }}
+               >
                 <Ionicons name="arrow-back" size={24} color={COLORS.text} />
               </TouchableOpacity>
               <Text style={{ 
@@ -564,9 +570,11 @@ export default function StreakPage() {
           {loading ? (
             <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
               <View style={{
-                backgroundColor: 'rgba(255, 255, 255, 0.1)',
+                backgroundColor: 'rgba(0, 0, 0, 0.8)',
                 borderRadius: 50,
                 padding: 20,
+                borderWidth: 1,
+                borderColor: COLORS.border,
               }}>
                 <ActivityIndicator size="large" color={COLORS.accent} />
               </View>
