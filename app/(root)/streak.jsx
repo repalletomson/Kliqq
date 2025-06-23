@@ -2,7 +2,7 @@ import React, { useEffect, useState, useRef, useMemo } from 'react';
 import { View, Text, SafeAreaView, StatusBar, TouchableOpacity, ActivityIndicator, ScrollView, ImageBackground, Dimensions } from 'react-native';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { BlurView } from '@react-native-community/blur';
+import { BlurView } from 'expo-blur';
 import { useSafeNavigation } from '../../hooks/useSafeNavigation';
 import { getUserStreak, subscribeToStreakChanges, getWeeklyActivity } from '../../(apis)/streaks';
 import { useAuth } from '../../context/authContext';
@@ -42,9 +42,8 @@ const TimeLeftCard = ({ timeLeft }) => (
         padding: 24,
         alignItems: 'center',
       }}
-      blurType="dark"
-      blurAmount={20}
-      reducedTransparencyFallbackColor="rgba(26, 26, 26, 0.9)"
+      intensity={80}
+      tint="dark"
     >
       <LinearGradient
         colors={['rgba(255, 255, 255, 0.15)', 'rgba(255, 255, 255, 0.05)']}
@@ -205,9 +204,8 @@ const InfoCard = () => (
         flexDirection: 'row',
         alignItems: 'center',
       }}
-      blurType="dark"
-      blurAmount={12}
-      reducedTransparencyFallbackColor="rgba(26, 26, 26, 0.85)"
+      intensity={50}
+      tint="dark"
     >
       <LinearGradient
         colors={['rgba(249, 115, 22, 0.15)', 'rgba(249, 115, 22, 0.05)']}
@@ -286,9 +284,8 @@ const WeekOverview = ({ activeDates }) => {
         style={{
           padding: 24,
         }}
-        blurType="dark"
-        blurAmount={15}
-        reducedTransparencyFallbackColor="rgba(26, 26, 26, 0.9)"
+        intensity={60}
+        tint="dark"
       >
         <LinearGradient
           colors={['rgba(255, 255, 255, 0.12)', 'rgba(255, 255, 255, 0.03)']}
@@ -496,13 +493,12 @@ export default function StreakPage() {
         }}
       />
 
-      {/* Main blur overlay */}
-      <BlurView 
-        style={{ flex: 1 }}
-        blurType="dark"
-        blurAmount={5}
-        reducedTransparencyFallbackColor="rgba(13, 13, 13, 0.8)"
-      >
+             {/* Main blur overlay */}
+       <BlurView 
+         style={{ flex: 1 }}
+         intensity={20}
+         tint="dark"
+       >
         <SafeAreaView style={{ flex: 1 }}>
           <StatusBar barStyle="light-content" />
           
@@ -518,16 +514,15 @@ export default function StreakPage() {
             shadowOpacity: 0.3,
             shadowRadius: 6,
           }}>
-            <BlurView 
-              style={{
-                flexDirection: 'row', 
-                alignItems: 'center', 
-                padding: 20,
-              }}
-              blurType="dark"
-              blurAmount={20}
-              reducedTransparencyFallbackColor="rgba(26, 26, 26, 0.9)"
-            >
+                         <BlurView 
+               style={{
+                 flexDirection: 'row', 
+                 alignItems: 'center', 
+                 padding: 20,
+               }}
+               intensity={80}
+               tint="dark"
+             >
               <LinearGradient
                 colors={['rgba(255, 255, 255, 0.1)', 'rgba(255, 255, 255, 0.05)']}
                 style={{
