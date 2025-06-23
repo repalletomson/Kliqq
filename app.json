@@ -1,7 +1,7 @@
 {
   "expo": {
     "name": "SocialZ",
-    "slug": "socialz",
+    "slug": "vips",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/117d8bd8-a0f2-4580-bb6c-70918613f149.png",
@@ -16,25 +16,21 @@
           "remote-notification"
         ]
       },
-      "bundleIdentifier": "com.r.tomson.vips"
+      "bundleIdentifier": "com.r.tomson.socialz"
     },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/VIP.png",
         "backgroundColor": "#EEE",
-              "softwareKeyboardLayoutMode": "pan"
-
+        "softwareKeyboardLayoutMode": "pan"
       },
       "googleServicesFile": "./google-services.json",
       "useNextNotificationsApi": true,
       "permissions": [
         "android.permission.NOTIFICATIONS",
-        "android.permission.RECORD_AUDIO",
-        "android.permission.NOTIFICATIONS",
         "android.permission.RECORD_AUDIO"
       ],
-            "softwareKeyboardLayoutMode": "pan"
-,
+      "softwareKeyboardLayoutMode": "pan",
       "package": "com.student.app"
     },
     "web": {
@@ -72,17 +68,17 @@
       "expo-font",
       "expo-secure-store",
       "@react-native-google-signin/google-signin",
-      "@react-native-firebase/app",
-      // "@react-native-google-signin/google-signin"
+      "@react-native-firebase/app"
     ],
     "developmentClient": {
       "silentLaunch": true
     },
-   "updates": {
+    "updates": {
       "fallbackToCacheTimeout": 0
     },
-        "assetBundlePatterns": ["**/*"],
-
+    "assetBundlePatterns": [
+      "**/*"
+    ],
     "experiments": {
       "typedRoutes": true
     },
@@ -99,9 +95,8 @@
       },
       "eas": {
         "projectId": "f156a284-7bbc-4353-bcde-53739d132a3e"
-        // "projectId":"vips"
       }
     },
     "owner": "r.tomson"
   }
-}// expo-firebase-core
+}
