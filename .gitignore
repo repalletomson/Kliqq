@@ -86,3 +86,18 @@ studentadmin.json
 
 # Ignore APK files
 assets/images/*.apk
+
+# Coverage
+coverage/
+*.lcov
+
+# Test files
+__tests__/
+
+# Documentation
+docs/
+*.md
+!README.md
+
+# Temp files
+prebuild/
