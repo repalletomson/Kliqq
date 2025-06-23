@@ -44,8 +44,8 @@ const TimeLeftCard = ({ timeLeft }) => (
         padding: 24,
         alignItems: 'center',
       }}
-      intensity={40}
-      tint="light"
+      intensity={50}
+      tint="dark"
     >
       <LinearGradient
         colors={['rgba(0, 0, 0, 0.4)', 'rgba(0, 0, 0, 0.8)']}
@@ -206,7 +206,7 @@ const InfoCard = () => (
         flexDirection: 'row',
         alignItems: 'center',
       }}
-      intensity={50}
+      intensity={45}
       tint="dark"
     >
       <LinearGradient
@@ -288,8 +288,8 @@ const WeekOverview = ({ activeDates }) => {
         style={{
           padding: 24,
         }}
-        intensity={30}
-        tint="light"
+        intensity={40}
+        tint="dark"
       >
                  <LinearGradient
            colors={['rgba(0, 0, 0, 0.3)', 'rgba(0, 0, 0, 0.7)']}
@@ -460,7 +460,7 @@ export default function StreakPage() {
     <View style={{ flex: 1 }}>
       {/* Background with dynamic gradients */}
       <LinearGradient 
-        colors={['rgba(230, 230, 250, 0.15)', 'rgba(221, 160, 221, 0.1)', 'rgba(218, 112, 214, 0.08)']} 
+        colors={['#000000', '#1a1a1a', '#000000']} 
         style={{ 
           position: 'absolute',
           top: 0,
@@ -472,7 +472,7 @@ export default function StreakPage() {
       
       {/* Animated background elements */}
       <LinearGradient
-        colors={['rgba(230, 230, 250, 0.2)', 'transparent', 'rgba(221, 160, 221, 0.15)']}
+        colors={['rgba(50, 50, 50, 0.3)', 'transparent', 'rgba(30, 30, 30, 0.4)']}
         style={{
           position: 'absolute',
           top: -100,
@@ -485,7 +485,7 @@ export default function StreakPage() {
       />
       
       <LinearGradient
-        colors={['transparent', 'rgba(218, 112, 214, 0.15)', 'rgba(230, 230, 250, 0.1)']}
+        colors={['transparent', 'rgba(40, 40, 40, 0.2)', 'rgba(20, 20, 20, 0.3)']}
         style={{
           position: 'absolute',
           bottom: -150,
@@ -500,8 +500,8 @@ export default function StreakPage() {
                     {/* Main blur overlay */}
        <BlurView 
          style={{ flex: 1 }}
-          intensity={10}
-          tint="light"
+          intensity={25}
+          tint="dark"
        >
         <SafeAreaView style={{ flex: 1 }}>
           <StatusBar barStyle="light-content" />
@@ -524,8 +524,8 @@ export default function StreakPage() {
                  alignItems: 'center', 
                  padding: 20,
                }}
-               intensity={40}
-               tint="light"
+               intensity={50}
+               tint="dark"
              >
                              <LinearGradient
                  colors={['rgba(0, 0, 0, 0.4)', 'rgba(0, 0, 0, 0.8)']}
