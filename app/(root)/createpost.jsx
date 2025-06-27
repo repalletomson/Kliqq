@@ -17,6 +17,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { useAuth } from '../../context/authContext';
 import { supabase } from '../../config/supabaseConfig';
 import { decode } from 'base64-arraybuffer';
+import networkErrorHandler from '../utiles/networkErrorHandler';
 
 const COLORS = {
   background: '#000000',
@@ -69,6 +70,7 @@ export default function CreatePost() {
 
   const uploadImage = async (base64Image) => {
     try {
+      setIsPosting(true);
       const fileName = `${user.uid}-${Date.now()}.jpg`;
       const filePath = `public/${fileName}`;
       const contentType = 'image/jpeg';
@@ -88,8 +90,10 @@ export default function CreatePost() {
 
       return publicUrl;
     } catch (error) {
-      console.error('Error uploading image:', error);
-      throw error;
+      networkErrorHandler.showErrorToUser(error);
+      return null;
+    } finally {
+      setIsPosting(false);
     }
   };
 
@@ -99,9 +103,8 @@ export default function CreatePost() {
       return;
     }
 
-    setIsPosting(true);
-
     try {
+      setIsPosting(true);
       let imageUrls = [];
       
       // Upload images if any
@@ -136,12 +139,9 @@ export default function CreatePost() {
         router.back();
       }
     } catch (error) {
-      console.error('Error creating post:', error);
-      Alert.alert('Error', 'Failed to create post. Please try again.');
+      networkErrorHandler.showErrorToUser(error);
     } finally {
-      if (isMounted.current) {
-        setIsPosting(false);
-      }
+      setIsPosting(false);
     }
   };
 

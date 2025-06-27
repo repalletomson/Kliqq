@@ -39,6 +39,8 @@ import {
   hasUserSaved,
 } from "../../../(apis)/post"
 import { LinearGradient } from 'expo-linear-gradient';
+import PostCard from '../../../components/PostCard';
+import networkErrorHandler from '../../../utiles/networkErrorHandler';
 
 const COLORS = {
   background: '#000000',
@@ -52,6 +54,28 @@ const COLORS = {
   success: '#10B981',
   shadow: 'rgba(139, 92, 246, 0.15)',
 };
+
+function getAnonPseudonym(userId, postId) {
+  const str = `${userId}:${postId}`;
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    hash = ((hash << 5) - hash) + str.charCodeAt(i);
+    hash |= 0; // Convert to 32bit integer
+  }
+  // Convert hash to base36 and take last 2 chars
+  const code = Math.abs(hash).toString(36).slice(-2);
+  return `anonymous-${code}`;
+}
+
+// Add this function for color-coding pseudonyms
+function getColorFromPseudonym(pseudonym) {
+  let hash = 0;
+  for (let i = 0; i < pseudonym.length; i++) {
+    hash = pseudonym.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  const hue = Math.abs(hash) % 360;
+  return `hsl(${hue}, 60%, 60%)`;
+}
 
 export default function PostDetailView() {
   const { postId } = useLocalSearchParams();
@@ -71,6 +95,7 @@ export default function PostDetailView() {
   const scrollViewRef = useRef();
   const commentInputRef = useRef();
   const [showAllRepliesMap, setShowAllRepliesMap] = useState({});
+  const [commentOptions, setCommentOptions] = useState(null);
 
   // Helper function to organize comments into hierarchical structure
   const organizeComments = (commentsArray) => {
@@ -118,6 +143,7 @@ export default function PostDetailView() {
         
         if (error) {
           console.error('❌ Error fetching post:', error);
+          networkErrorHandler.showErrorToUser(error);
           return;
         }
         
@@ -172,6 +198,7 @@ export default function PostDetailView() {
         
         if (error) {
           console.error('❌ Error fetching comments:', error);
+          networkErrorHandler.showErrorToUser(error);
           return;
         }
         
@@ -361,158 +388,57 @@ export default function PostDetailView() {
     }));
   };
 
+  // Update renderCommentItem to remove left margin for replies, decrease text size, and color-code anonymous avatars
   const renderCommentItem = (item, isReply = false) => {
-    // Handle both old and new field naming conventions
     const isOwnComment = (item.user_id) === user?.uid;
     const userName = item.user_name || 'Anonymous';
-    const userAvatar = item.user_avatar || 'https://cdn-icons-png.flaticon.com/512/149/149071.png';
-    const isAnonymous = item.is_anonymous || false;
     const content = item.content || '';
-    const timestamp = item.created_at;
-    
-    const showAllReplies = showAllRepliesMap[item.id] || false;
-    const repliesToShow = showAllReplies ? item.replies : item.replies?.slice(0, 1) || [];
-    const hasMoreReplies = item.replies && item.replies.length > 1;
-    
+    const isAnonymousUser = item.is_anonymous;
+    const avatarBgColor = isAnonymousUser ? getColorFromPseudonym(userName) : COLORS.inputBg;
+    const avatarText = isAnonymousUser ? 'A' : userName.charAt(0).toUpperCase();
     return (
-      <View 
-        key={item.id} 
+      <View
+        key={item.id}
         style={{
-          backgroundColor: isReply ? 'rgba(139, 92, 246, 0.05)' : COLORS.cardBg,
-          marginBottom: 8,
-          marginLeft: isReply ? 40 : 0,
+          backgroundColor: isReply ? 'rgba(139,92,246,0.07)' : COLORS.cardBg,
+          marginBottom: 4,
+          marginLeft: isReply ? 0 : 0,
           borderRadius: 12,
-          padding: isReply ? 12 : 16,
-          borderLeftWidth: isReply ? 2 : 0,
-          borderLeftColor: isReply ? COLORS.accent : 'transparent',
+          padding: 10,
         }}
       >
         <View style={{ flexDirection: 'row', alignItems: 'flex-start' }}>
-          <Image 
-            source={{ 
-              uri: isAnonymous 
-                ? 'https://cdn-icons-png.flaticon.com/512/149/149071.png' 
-                : userAvatar
-            }} 
-            style={{ 
-              width: isReply ? 32 : 38, 
-              height: isReply ? 32 : 38, 
-              borderRadius: isReply ? 16 : 19, 
-              marginRight: 12,
-            }} 
-          />
-          
+          <View style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: avatarBgColor, justifyContent: 'center', alignItems: 'center', marginRight: 12 }}>
+            <Text style={{ color: COLORS.text, fontSize: 18, fontWeight: '700' }}>{avatarText}</Text>
+          </View>
           <View style={{ flex: 1 }}>
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 3 }}>
-              <View style={{ flex: 1 }}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 2 }}>
-                  <Text style={{ 
-                    color: COLORS.text, 
-                    fontSize: isReply ? 13 : 15, 
-                    fontWeight: '700',
-                    marginRight: 8
-                  }}>
-                    {userName}
-                  </Text>
-                  {isOwnComment && (
-                    <View style={{
-                      backgroundColor: COLORS.accent,
-                      borderRadius: 6,
-                      paddingHorizontal: 4,
-                      paddingVertical: 1,
-                    }}>
-                      <Text style={{ color: '#FFF', fontSize: 8, fontWeight: '600' }}>You</Text>
-                    </View>
-                  )}
-                </View>
-                <Text style={{ color: COLORS.textMuted, fontSize: isReply ? 11 : 12, fontWeight: '500' }}>
-                  {formatTimestamp(timestamp)}
-                </Text>
-              </View>
-              
-              {!isReply && (
-                <TouchableOpacity 
-                  style={{ 
-                    flexDirection: 'row', 
-                    alignItems: 'center',
-                    backgroundColor: 'rgba(255,255,255,0.05)',
-                    paddingHorizontal: 8,
-                    paddingVertical: 4,
-                    borderRadius: 12,
-                    marginLeft: 8,
-                  }}
-                  onPress={() => handleReplyPress(item.id, userName)}
-                >
-                  <Ionicons name="chatbubble-outline" size={11} color={COLORS.textSecondary} />
-                  <Text style={{ 
-                    color: COLORS.textSecondary, 
-                    marginLeft: 3, 
-                    fontSize: 10,
-                    fontWeight: '600'
-                  }}>
-                    Reply
-                  </Text>
-                </TouchableOpacity>
-              )}
-              
-              {isOwnComment && (
-                <TouchableOpacity 
-                  style={{
-                    width: 24,
-                    height: 24,
-                    borderRadius: 12,
-                    backgroundColor: 'rgba(255,255,255,0.1)',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    marginLeft: 8,
-                  }}
-                >
-                  <MaterialIcons name="more-vert" size={14} color={COLORS.textSecondary} />
-                </TouchableOpacity>
-              )}
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 2 }}>
+              <Text style={{ color: COLORS.text, fontSize: 16, fontWeight: '700', marginRight: 8 }}>{userName}</Text>
+              <TouchableOpacity onPress={() => setCommentOptions({ id: item.id, isOwn: isOwnComment })} style={{ padding: 4 }}>
+                <Ionicons name="ellipsis-horizontal" size={18} color={COLORS.textSecondary} />
+              </TouchableOpacity>
             </View>
-            
-            <Text style={{ 
-              color: COLORS.text, 
-              fontSize: isReply ? 13 : 15,
-              lineHeight: isReply ? 18 : 20,
-              marginBottom: 8,
-              fontWeight: '400'
-            }}>
-              {content}
-            </Text>
+            <Text style={{ color: COLORS.text, fontSize: 15, lineHeight: 22, fontWeight: '400' }}>{content}</Text>
+            {/* Only show Reply for main comments */}
+            {!isReply && (
+              <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 6 }}>
+                <TouchableOpacity
+                  onPress={() => handleReplyPress(item.id, userName)}
+                  style={{ paddingVertical: 2, paddingHorizontal: 8, borderRadius: 8 }}
+                >
+                  <Text style={{ color: COLORS.accent, fontSize: 13, fontWeight: '600' }}>Reply</Text>
+                </TouchableOpacity>
+              </View>
+            )}
           </View>
         </View>
-        
+        {/* Replies: group with a single vertical line */}
         {!isReply && item.replies && item.replies.length > 0 && (
-          <View style={{ marginTop: 8 }}>
-            {repliesToShow.map(reply => renderCommentItem(reply, true))}
-            
-            {hasMoreReplies && (
-              <TouchableOpacity
-                style={{
-                  marginTop: 8,
-                  paddingVertical: 6,
-                  paddingHorizontal: 12,
-                  backgroundColor: 'rgba(139, 92, 246, 0.1)',
-                  borderRadius: 10,
-                  alignSelf: 'flex-start',
-                  marginLeft: 44,
-                }}
-                onPress={() => toggleShowAllReplies(item.id)}
-              >
-                <Text style={{
-                  color: COLORS.accent,
-                  fontSize: 12,
-                  fontWeight: '600'
-                }}>
-                  {showAllReplies 
-                    ? 'Show less' 
-                    : `Show ${item.replies.length - 1} more ${item.replies.length - 1 === 1 ? 'reply' : 'replies'}`
-                  }
-                </Text>
-              </TouchableOpacity>
-            )}
+          <View style={{ flexDirection: 'row', marginTop: 4, marginLeft: 32 }}>
+            <View style={{ width: 1.5, backgroundColor: COLORS.accent, borderRadius: 1, marginRight: 10, marginTop: 2, marginBottom: 2 }} />
+            <View style={{ flex: 1 }}>
+              {item.replies.map(reply => renderCommentItem(reply, true))}
+            </View>
           </View>
         )}
       </View>
@@ -540,6 +466,7 @@ export default function PostDetailView() {
           
         if (error) {
           console.error('❌ Error removing like:', error);
+          networkErrorHandler.showErrorToUser(error);
           Alert.alert("Error", "Failed to remove like. Please try again.");
           return;
         }
@@ -564,6 +491,7 @@ export default function PostDetailView() {
             return;
           }
           console.error('❌ Error adding like:', error);
+          networkErrorHandler.showErrorToUser(error);
           Alert.alert("Error", "Failed to add like. Please try again.");
           return;
         }
@@ -619,8 +547,7 @@ export default function PostDetailView() {
       }
     } catch (error) {
       console.error("Save post error:", error);
-      
-      // If there's a duplicate key error, it means the save exists but UI is out of sync
+      networkErrorHandler.showErrorToUser(error);
       if (error.code === '23505') {
         console.log("Duplicate key error - syncing save state");
         setIsSaved(true);
@@ -652,7 +579,7 @@ export default function PostDetailView() {
         user_id: user.uid,
         parent_comment_id: replyingTo?.id || null,
         content: newComment.trim(),
-        user_name: isAnonymous ? 'Anonymous' : user.full_name || user.name || 'User',
+        user_name: isAnonymous ? getAnonPseudonym(user.uid, postId) : user.full_name || user.name || 'User',
         user_avatar: isAnonymous ? null : user.profile_image || user.avatar,
         is_anonymous: isAnonymous,
         created_at: new Date().toISOString(),
@@ -678,6 +605,7 @@ export default function PostDetailView() {
 
       if (error) {
         console.error('❌ Error adding comment:', error);
+        networkErrorHandler.showErrorToUser(error);
         Alert.alert('Error', 'Failed to add comment. Please try again.');
         return;
       }
@@ -704,20 +632,28 @@ export default function PostDetailView() {
 
     } catch (error) {
       console.error('❌ Error adding comment:', error);
+      networkErrorHandler.showErrorToUser(error);
       Alert.alert('Error', 'Failed to add comment. Please try again.');
     }
   };
 
+  const handleDeleteComment = async (commentId) => {
+    // Only allow delete if own comment
+    if (!commentOptions?.isOwn) return;
+    await supabase.from('comments').delete().eq('id', commentId);
+    setCommentOptions(null);
+  };
+
   if (!post) return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: COLORS.background, justifyContent: 'center', alignItems: 'center' }}>
+    <SafeAreaView style={{ flex: 1, backgroundColor: '#000', justifyContent: 'center', alignItems: 'center' }}>
       <Text style={{ color: COLORS.text, fontSize: 18 }}>Loading...</Text>
     </SafeAreaView>
   );
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: COLORS.background }}>
+    <SafeAreaView style={{ flex: 1, backgroundColor: 'red' }}>
       <KeyboardAvoidingView
-        style={{ flex: 1 }}
+        style={{ flex: 1, backgroundColor: '#000' }}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
       >
@@ -728,7 +664,7 @@ export default function PostDetailView() {
           justifyContent: 'space-between',
           paddingHorizontal: 20,
           paddingVertical: 16,
-          backgroundColor: COLORS.cardBg,
+          backgroundColor: '#000',
           shadowColor: COLORS.shadow,
           shadowOffset: { width: 0, height: 2 },
           shadowOpacity: 0.8,
@@ -738,20 +674,20 @@ export default function PostDetailView() {
           <TouchableOpacity onPress={() => router.back()}>
             <Ionicons name="arrow-back" size={24} color={COLORS.text} />
           </TouchableOpacity>
-          <Text style={{ color: COLORS.text, fontSize: 20, fontWeight: '700' }}>Post</Text>
+          {/* <Text style={{ color: COLORS.text, fontSize: 20, fontWeight: '700' }}>Post</Text> */}
           <View style={{ width: 24 }} />
         </View>
 
         <ScrollView 
           ref={scrollViewRef} 
-          style={{ flex: 1 }}
+          style={{ flex: 1, backgroundColor: '#000' }}
           contentContainerStyle={{ paddingBottom: 120 }}
         >
           {/* Post Card */}
           <View style={{
             backgroundColor: COLORS.cardBg,
             marginHorizontal: 0,
-            marginVertical: 20,
+            // marginVertical: 20,
             borderRadius: 0,
             shadowColor: COLORS.shadow,
             shadowOffset: { width: 0, height: 6 },
@@ -760,56 +696,18 @@ export default function PostDetailView() {
             elevation: 8,
           }}>
             {/* User Header */}
-            <View style={{ 
-              flexDirection: 'row', 
-              justifyContent: 'space-between', 
-              alignItems: 'center', 
-              padding: 24,
-              paddingBottom: 16
-            }}>
-              <TouchableOpacity 
-                style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}
-                onPress={() => router.push(`/profile/${post.userId}`)}
-              >
-                <Image
-                  source={{ uri: post.userAvatar || 'https://cdn-icons-png.flaticon.com/512/149/149071.png' }}
-                  style={{
-                    width: 56,
-                    height: 56,
-                    borderRadius: 28,
-                    marginRight: 16,
-                  }}
-                />
-                <View style={{ flex: 1 }}>
-                  <Text style={{
-                    fontWeight: '700',
-                    fontSize: 18,
-                    color: COLORS.text,
-                    marginBottom: 4,
-                  }}>
-                    {post.userName}
-                  </Text>
-                  <Text style={{ fontSize: 15, color: COLORS.textSecondary, fontWeight: '500' }}>
-                    {formatTimestamp(post.createdAt)}
-                  </Text>
-                </View>
-              </TouchableOpacity>
-
-              <TouchableOpacity 
-                style={{
-                  width: 48,
-                  height: 48,
-                  borderRadius: 24,
-                  backgroundColor: 'rgba(255,255,255,0.08)',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                }}
-              >
-                <Ionicons 
-                  name="ellipsis-horizontal" 
-                  size={22} 
-                  color={COLORS.textSecondary} 
-                />
+            <View style={{ flexDirection: 'row', alignItems: 'center', padding: 20, backgroundColor: COLORS.cardBg, borderBottomWidth: 1, borderBottomColor: COLORS.inputBg }}>
+              <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: COLORS.inputBg, justifyContent: 'center', alignItems: 'center', borderWidth: 2, borderColor: COLORS.accent, marginRight: 8 }}>
+                <Text style={{ color: COLORS.text, fontSize: 16, fontWeight: '800' }}>
+                  {(post?.userName || 'A').charAt(0).toUpperCase()}
+                </Text>
+              </View>
+              <Text style={{ color: COLORS.text, fontSize: 16, fontWeight: '700' }}>
+                {post?.userName || 'Anonymous'}
+              </Text>
+              <View style={{ flex: 1 }} />
+              <TouchableOpacity onPress={() => setCommentOptions({ id: post.id, isOwn: post.userId === user?.uid })} style={{ padding: 4 }}>
+                <Ionicons name="ellipsis-horizontal" size={22} color={COLORS.textSecondary} />
               </TouchableOpacity>
             </View>
 
@@ -942,7 +840,7 @@ export default function PostDetailView() {
           </View>
 
           {/* Comments Section */}
-          <View style={{ paddingHorizontal: 20 }}>
+          <View style={{ paddingHorizontal: 20, backgroundColor: 'transparent' }}>
             <Text style={{ 
               color: COLORS.text, 
               fontSize: 20, 
@@ -951,12 +849,11 @@ export default function PostDetailView() {
             }}>
               Comments ({commentCount})
             </Text>
-            
             {comments.length > 0 ? (
               comments.map(comment => renderCommentItem(comment))
             ) : (
               <View style={{
-                backgroundColor: COLORS.cardBg,
+                backgroundColor: 'transparent',
                 borderRadius: 20,
                 padding: 40,
                 alignItems: 'center',
@@ -964,7 +861,7 @@ export default function PostDetailView() {
                 <Ionicons name="chatbubble-outline" size={56} color={COLORS.textSecondary} />
                 <Text style={{ 
                   color: COLORS.textSecondary, 
-                  fontSize: 18,
+                  fontSize: 20,
                   textAlign: 'center',
                   marginTop: 16,
                   fontWeight: '500'
@@ -977,134 +874,53 @@ export default function PostDetailView() {
         </ScrollView>
 
         {/* Comment Input */}
-        <View style={{ 
-          paddingHorizontal: 20, 
-          paddingVertical: 16, 
-          backgroundColor: COLORS.cardBg,
-          shadowColor: COLORS.shadow,
-          shadowOffset: { width: 0, height: -4 },
-          shadowOpacity: 0.8,
-          shadowRadius: 15,
-          elevation: 10,
-        }}>
+        <View style={{ paddingHorizontal: 20, paddingVertical: 16, backgroundColor: '#000', shadowColor: COLORS.shadow, shadowOffset: { width: 0, height: -4 }, shadowOpacity: 0.8, shadowRadius: 15, elevation: 10 }}>
           {replyingTo && (
-            <View style={{
-              flexDirection: 'row',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              backgroundColor: COLORS.inputBg,
-              paddingHorizontal: 16,
-              paddingVertical: 12,
-              borderRadius: 16,
-              marginBottom: 12,
-            }}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: COLORS.inputBg, paddingHorizontal: 16, paddingVertical: 12, borderRadius: 16, marginBottom: 12 }}>
               <Text style={{ color: COLORS.text, fontSize: 15, fontWeight: '500' }}>
                 Replying to <Text style={{ color: COLORS.accent, fontWeight: '700' }}>{replyingTo.name}</Text>
               </Text>
-              <TouchableOpacity onPress={() => {
-                setReplyingTo(null);
-                setNewComment('');
-              }}>
+              <TouchableOpacity onPress={() => { setReplyingTo(null); setNewComment(''); }}>
                 <Ionicons name="close" size={20} color={COLORS.textSecondary} />
               </TouchableOpacity>
             </View>
           )}
-          
-          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-            <Image 
-              source={{ 
-                uri: isAnonymous 
-                  ? 'https://cdn-icons-png.flaticon.com/512/149/149071.png' 
-                  : user?.photoURL || 'https://cdn-icons-png.flaticon.com/512/149/149071.png' 
-              }} 
-              style={{ 
-                width: 44, 
-                height: 44, 
-                borderRadius: 22, 
-                marginRight: 16,
-              }} 
+          <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: COLORS.inputBg, borderRadius: 28, paddingLeft: 8, paddingRight: 8, paddingVertical: 8 }}>
+            <TouchableOpacity
+              onPress={() => setIsAnonymous((prev) => !prev)}
+              style={{
+                marginRight: 10,
+                width: 36,
+                height: 36,
+                borderRadius: 18,
+                backgroundColor: isAnonymous ? COLORS.accent : COLORS.textMuted,
+                alignItems: 'center',
+                justifyContent: 'center',
+                borderWidth: 2,
+                borderColor: isAnonymous ? COLORS.accent : COLORS.textMuted,
+              }}
+              accessibilityLabel="Toggle anonymous comment"
+            >
+              {isAnonymous ? (
+                <FontAwesome5 name="user-secret" size={18} color="#fff" />
+              ) : (
+                <FontAwesome5 name="user" size={18} color="#fff" />
+              )}
+            </TouchableOpacity>
+            <TextInput
+              ref={commentInputRef}
+              value={newComment}
+              onChangeText={setNewComment}
+              placeholder={isAnonymous ? "Comment as anonymous..." : "Add a comment..."}
+              placeholderTextColor={COLORS.textSecondary}
+              style={{ flex: 1, color: COLORS.text, fontSize: 15, paddingVertical: 10, fontWeight: '400', backgroundColor: 'transparent' }}
+              multiline
             />
-            
-            <View style={{ 
-              flex: 1, 
-              flexDirection: 'row', 
-              alignItems: 'center', 
-              backgroundColor: COLORS.inputBg,
-              borderRadius: 28,
-              paddingLeft: 20,
-              paddingRight: 8,
-              paddingVertical: 8,
-            }}>
-              <TextInput
-                ref={commentInputRef}
-                value={newComment}
-                onChangeText={setNewComment}
-                placeholder={isAnonymous ? "Comment anonymously..." : "Add a comment..."}
-                placeholderTextColor={COLORS.textSecondary}
-                style={{ 
-                  flex: 1, 
-                  color: COLORS.text,
-                  fontSize: 16,
-                  paddingVertical: 12,
-                  fontWeight: '400'
-                }}
-                multiline
-              />
-              
-              {/* Anonymous Toggle as Checkbox */}
-              <TouchableOpacity
-                onPress={() => setIsAnonymous(!isAnonymous)}
-                style={{
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                  marginRight: 12,
-                  paddingHorizontal: 8,
-                  paddingVertical: 6,
-                  backgroundColor: isAnonymous ? 'rgba(139, 92, 246, 0.2)' : 'rgba(255,255,255,0.1)',
-                  borderRadius: 16,
-                }}
-              >
-                <Ionicons 
-                  name={isAnonymous ? "checkmark-circle" : "ellipse-outline"} 
-                  size={16} 
-                  color={isAnonymous ? COLORS.accent : COLORS.textSecondary} 
-                />
-                <Text style={{ 
-                  color: isAnonymous ? COLORS.accent : COLORS.textSecondary, 
-                  fontSize: 11, 
-                  fontWeight: '600',
-                  marginLeft: 4
-                }}>
-                  Anon
-                </Text>
-              </TouchableOpacity>
-              
-              <TouchableOpacity 
-                onPress={handleAddComment}
-                disabled={!newComment.trim()}
-                style={{
-                  width: 44,
-                  height: 44,
-                  borderRadius: 22,
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  opacity: !newComment.trim() ? 0.5 : 1,
-                }}
-              >
-                <LinearGradient
-                  colors={[COLORS.accent, '#A855F7']}
-                  style={{
-                    width: 44,
-                    height: 44,
-                    borderRadius: 22,
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                  }}
-                >
-                  <Ionicons name="send" size={20} color="#FFF" />
-                </LinearGradient>
-              </TouchableOpacity>
-            </View>
+            <TouchableOpacity onPress={handleAddComment} disabled={!newComment.trim()} style={{ width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center', opacity: !newComment.trim() ? 0.5 : 1 }}>
+              <LinearGradient colors={[COLORS.accent, '#A855F7']} style={{ width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center' }}>
+                <FontAwesome5 name="paper-plane" size={18} color="#FFF" />
+              </LinearGradient>
+            </TouchableOpacity>
           </View>
         </View>
       </KeyboardAvoidingView>
@@ -1143,6 +959,22 @@ export default function PostDetailView() {
           </Pressable>
         </Modal>
       )}
+
+      {/* Comment Options Modal */}
+      <Modal visible={!!commentOptions} transparent animationType="fade" onRequestClose={() => setCommentOptions(null)}>
+        <TouchableOpacity style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.3)', justifyContent: 'flex-end' }} activeOpacity={1} onPress={() => setCommentOptions(null)}>
+          <View style={{ backgroundColor: COLORS.cardBg, borderTopLeftRadius: 18, borderTopRightRadius: 18, padding: 24 }}>
+            {commentOptions?.isOwn && (
+              <TouchableOpacity onPress={() => handleDeleteComment(commentOptions.id)} style={{ paddingVertical: 12 }}>
+                <Text style={{ color: COLORS.accent, fontWeight: '700', fontSize: 16 }}>Delete Comment</Text>
+              </TouchableOpacity>
+            )}
+            <TouchableOpacity onPress={() => setCommentOptions(null)} style={{ paddingVertical: 12 }}>
+              <Text style={{ color: COLORS.textSecondary, fontWeight: '500', fontSize: 16 }}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+      </Modal>
     </SafeAreaView>
   );
 };

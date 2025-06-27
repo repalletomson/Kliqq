@@ -12,6 +12,8 @@ import {
   Image,
   Modal,
   InteractionManager,
+  StyleSheet,
+  ActivityIndicator,
 } from 'react-native';
 import { router } from 'expo-router';
 import { AntDesign, MaterialIcons, Feather } from '@expo/vector-icons';
@@ -95,113 +97,24 @@ const StablePasswordInput = React.memo(({
 
 StablePasswordInput.displayName = 'StablePasswordInput';
 
-// Error Modal Component
-const ErrorModal = ({ visible, message, type, onClose }) => {
-  const modalScale = useSharedValue(0);
-  const modalOpacity = useSharedValue(0);
-
-  useEffect(() => {
-    if (visible) {
-      modalOpacity.value = withTiming(1, { duration: 300 });
-      modalScale.value = withSpring(1, { damping: 15 });
-    } else {
-      modalOpacity.value = withTiming(0, { duration: 200 });
-      modalScale.value = withTiming(0, { duration: 200 });
-    }
-  }, [visible]);
-
-  const animatedStyle = useAnimatedStyle(() => {
-    return {
-      opacity: modalOpacity.value,
-      transform: [{ scale: modalScale.value }],
-    };
-  });
-
-  const getIcon = () => {
-    switch (type) {
-      case 'error':
-        return <MaterialIcons name="error-outline" size={32} color="#EF4444" />;
-      case 'success':
-        return <MaterialIcons name="check-circle-outline" size={32} color="#10B981" />;
-      default:
-        return <MaterialIcons name="info-outline" size={32} color="#3B82F6" />;
-    }
-  };
-
-  return (
-    <Modal
-      transparent
-      visible={visible}
-      animationType="none"
-      onRequestClose={onClose}
-    >
-      <View style={{
-        flex: 1,
-        backgroundColor: 'rgba(0, 0, 0, 0.8)',
-        justifyContent: 'center',
-        alignItems: 'center',
-        paddingHorizontal: 24,
-      }}>
-        <Animated.View style={[{
-          backgroundColor: '#1A1A1A',
-          borderRadius: 20,
-          padding: 24,
-          width: '100%',
-          maxWidth: 350,
-          borderWidth: 1,
-          borderColor: '#404040',
-        }, animatedStyle]}>
-          {/* Icon */}
-          <View style={{ alignItems: 'center', marginBottom: 16 }}>
-            {getIcon()}
-          </View>
-
-          {/* Title */}
-          <Text style={{
-            color: '#FFFFFF',
-            fontSize: 18,
-            fontWeight: '700',
-            textAlign: 'center',
-            marginBottom: 12,
-          }}>
-            {type === 'error' ? 'Sign Up Error' : 
-             type === 'success' ? 'Success' : 'Information'}
-          </Text>
-
-          {/* Message */}
-          <Text style={{
-            color: '#CCCCCC',
-            fontSize: 15,
-            textAlign: 'center',
-            lineHeight: 22,
-            marginBottom: 24,
-          }}>
-            {message}
-          </Text>
-
-          {/* Button */}
-          <TouchableOpacity
-            onPress={onClose}
-            style={{
-              backgroundColor: '#FFFFFF',
-              borderRadius: 12,
-              paddingVertical: 14,
-              alignItems: 'center',
-            }}
-          >
-            <Text style={{
-              color: '#000000',
-              fontSize: 16,
-              fontWeight: '600',
-            }}>
-              {type === 'success' ? 'Continue' : 'Try Again'}
-            </Text>
-          </TouchableOpacity>
-        </Animated.View>
+// Simple, unified modal for all error/info messages
+const SimpleModal = ({ visible, message, onClose }) => (
+  <Modal
+    visible={visible}
+    transparent
+    animationType="fade"
+    onRequestClose={onClose}
+  >
+    <View style={styles.modalOverlay}>
+      <View style={styles.modalContent}>
+        <Text style={styles.modalMessage}>{message}</Text>
+        <TouchableOpacity onPress={onClose} style={styles.modalButton}>
+          <Text style={styles.modalButtonText}>OK</Text>
+        </TouchableOpacity>
       </View>
-    </Modal>
-  );
-};
+    </View>
+  </Modal>
+);
 
 // Black theme colors
 const colors = {
@@ -290,12 +203,12 @@ export default function SignUpScreen() {
   const [fullName, setFullName] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
-  const [errorModal, setErrorModal] = useState({ visible: false, message: '', type: 'error' });
+  const [modalVisible, setModalVisible] = useState(false);
+  const [modalMessage, setModalMessage] = useState('');
   const [step, setStep] = useState(1);
   const [photoUrl, setPhotoUrl] = useState(null);
   const [showPassword, setShowPassword] = useState(false);
   const { register } = useAuth();
-  const [isModalVisible, setIsModalVisible] = useState(false);
 
   // Animation values
   const buttonScale = useSharedValue(1);
@@ -305,7 +218,7 @@ export default function SignUpScreen() {
   // Universal safe navigation
   const { safeNavigate, safeBack } = useSafeNavigation({
     modals: [
-      () => isModalVisible && setIsModalVisible(false),
+      () => modalVisible && setModalVisible(false),
       // Add other modal close functions here if needed
     ],
     onCleanup: () => {
@@ -323,14 +236,6 @@ export default function SignUpScreen() {
     slideY.value = withSpring(0, { damping: 15 });
   }, []);
 
-  const showError = useCallback((message, type = 'error') => {
-    setErrorModal({ visible: true, message, type });
-  }, []);
-
-  const hideError = useCallback(() => {
-    setErrorModal({ visible: false, message: '', type: 'error' });
-  }, []);
-
   const handleGoogleSignUp = useCallback(async () => {
     try {
       setLoading(true);
@@ -346,8 +251,8 @@ export default function SignUpScreen() {
       setFullName(data.user.name || '');
       setStep(2);
       
-      showError('Google account connected successfully! Now create a secure password for your account.', 'success');
-      setTimeout(() => hideError(), 2500);
+      setModalMessage('Google account connected successfully! Now create a secure password for your account.');
+      setModalVisible(true);
       
       setTimeout(() => {
         buttonScale.value = withSpring(1);
@@ -365,21 +270,24 @@ export default function SignUpScreen() {
         errorMessage = 'Google Play Services is not available. Please update Google Play Services.';
       }
       
-      showError(errorMessage);
+      setModalMessage(errorMessage);
+      setModalVisible(true);
       buttonScale.value = withSpring(1);
     } finally {
       setLoading(false);
     }
-  }, [showError, hideError]);
+  }, [setModalMessage, setModalVisible]);
 
   const handleSignUp = useCallback(async () => {
     if (!password.trim()) {
-      showError('Please enter a password to secure your account.');
+      setModalMessage('Please enter a password to secure your account.');
+      setModalVisible(true);
       return;
     }
 
     if (password.length < 8) {
-      showError('Password must be at least 8 characters long for security.');
+      setModalMessage('Password must be at least 8 characters long for security.');
+      setModalVisible(true);
       return;
     }
 
@@ -397,7 +305,7 @@ export default function SignUpScreen() {
       // Check if registration was successful (returns user ID string or false)
       if (response && response !== false && typeof response === 'string') {
         console.log('✅ Registration successful, redirecting to profile...');
-        showError('Account created successfully! Welcome to SocialZ! 🎉', 'success');
+        setModalMessage('Account created successfully! Welcome to SocialZ! 🎉');
         
         // Safe navigation with proper cleanup
         console.log('🚀 Preparing safe navigation to userprofile...');
@@ -405,7 +313,6 @@ export default function SignUpScreen() {
         // Use setTimeout to ensure all state updates are complete
         setTimeout(async () => {
           console.log('🔄 Starting safe navigation to onboarding...');
-          hideError();
           
           try {
             // Use safe navigation utility - wait longer to ensure auth state is set
@@ -432,7 +339,8 @@ export default function SignUpScreen() {
         }, 1200);
       } else {
         console.log('❌ Registration failed, response:', response);
-        showError('Failed to create account. Please try again.');
+        setModalMessage('Failed to create account. Please try again.');
+        setModalVisible(true);
       }
       
       setTimeout(() => {
@@ -441,12 +349,13 @@ export default function SignUpScreen() {
     } catch (error) {
       console.error('❌ Signup error:', error);
       const errorMessage = getSignupErrorMessage(error);
-      showError(errorMessage);
+      setModalMessage(errorMessage);
+      setModalVisible(true);
       buttonScale.value = withSpring(1);
     } finally {
       setLoading(false);
     }
-  }, [email, password, photoUrl, fullName, register, showError, hideError]);
+  }, [email, password, photoUrl, fullName, register, safeNavigate]);
 
   const AnimatedButton = ({ title, onPress, disabled, variant = 'primary' }) => {
     const animatedStyle = useAnimatedStyle(() => {
@@ -789,13 +698,52 @@ export default function SignUpScreen() {
         </ScrollView>
       </KeyboardAvoidingView>
 
-      {/* Error Modal */}
-      <ErrorModal
-        visible={errorModal.visible}
-        message={errorModal.message}
-        type={errorModal.type}
-        onClose={hideError}
-      />
+      {/* Simple Modal */}
+      <SimpleModal visible={modalVisible} message={modalMessage} onClose={() => setModalVisible(false)} />
     </View>
   );
 }
+
+const styles = StyleSheet.create({
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.7)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 1000,
+    elevation: 1000,
+  },
+  modalContent: {
+    backgroundColor: '#18181B',
+    borderRadius: 18,
+    padding: 28,
+    alignItems: 'center',
+    maxWidth: 320,
+    width: '85%',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.4,
+    shadowRadius: 16,
+    elevation: 12,
+  },
+  modalMessage: {
+    color: '#fff',
+    fontSize: 16,
+    textAlign: 'center',
+    marginBottom: 18,
+    fontWeight: '500',
+  },
+  modalButton: {
+    backgroundColor: '#8B5CF6',
+    borderRadius: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 32,
+    alignItems: 'center',
+    marginTop: 4,
+  },
+  modalButtonText: {
+    color: '#fff',
+    fontWeight: '700',
+    fontSize: 16,
+  },
+});

@@ -23,6 +23,7 @@ import {
 } from 'react-native-gesture-handler';
 import { AES, enc } from 'react-native-crypto-js';
 import { useAuth } from '../../context/authContext';
+import networkErrorHandler from '../utiles/networkErrorHandler';
 
 dayjs.extend(relativeTime);
 
@@ -341,12 +342,15 @@ export default function ChatRoom() {
 
     const loadRecipientData = async () => {
       try {
+        setLoading(true);
         const recipientData = await fetchUserFromSupabase(recipientId);
         if (recipientData) {
           setRecipient(recipientData);
         }
       } catch (error) {
-        console.error('Error loading recipient data:', error);
+        networkErrorHandler.showErrorToUser(error);
+      } finally {
+        setLoading(false);
       }
     };
 

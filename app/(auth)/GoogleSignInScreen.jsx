@@ -4,6 +4,7 @@ import { GoogleSignin } from '@react-native-google-signin/google-signin';
 import { supabase } from '../../config/supabaseConfig';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
+import networkErrorHandler from '../../utiles/networkErrorHandler';
 
 const GOOGLE_CLIENT_ID = '829005659257-sj4nhdfc0oulevt345air506sjn9uoh6.apps.googleusercontent.com';
 
@@ -13,9 +14,9 @@ export default function GoogleSignInScreen() {
 
   useEffect(() => {
     GoogleSignin.configure({
-      webClientId: 'YOUR_WEB_CLIENT_ID.apps.googleusercontent.com', // Replace with your actual Web Client ID
+      webClientId: '829005659257-sj4nhdfc0oulevt345air506sjn9uoh6.apps.googleusercontent.com', // Real Web Client ID
     });
-    console.log('GoogleSignin configured with webClientId:', 'YOUR_WEB_CLIENT_ID.apps.googleusercontent.com');
+    console.log('GoogleSignin configured with webClientId:', '829005659257-sj4nhdfc0oulevt345air506sjn9uoh6.apps.googleusercontent.com');
   }, []);
 
   const handleGoogleSignIn = async () => {
@@ -55,6 +56,7 @@ export default function GoogleSignInScreen() {
       }
     } catch (err) {
       setError('Google sign-in failed.');
+      networkErrorHandler.showErrorToUser(err);
       console.log('Google sign-in error:', err);
     } finally {
       setLoading(false);

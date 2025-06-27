@@ -20,7 +20,9 @@ import { MaterialIcons, Ionicons, Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { useNavigation, useRouter } from "expo-router";
 import { LinearGradient } from 'expo-linear-gradient';
+import { BlurView } from 'expo-blur';
 import { useSafeNavigation } from '../../../hooks/useSafeNavigation';
+import networkErrorHandler from '../../../utiles/networkErrorHandler';
 
 // Updated color palette with gradients from bright to dull white
 const ThemeContext = React.createContext({
@@ -118,6 +120,7 @@ export default function Connect()  {
   const [isProfileModalVisible, setProfileModalVisible] = useState(false);
   const navigation = useNavigation();
   const windowWidth = Dimensions.get('window').width;
+  const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
 
   // Universal safe navigation
   const { safeNavigate, safeBack } = useSafeNavigation({
@@ -150,84 +153,11 @@ export default function Connect()  {
   const toggleTheme = () => {
     setIsDarkMode(!isDarkMode);
   };
-async function sendPushNotification() {
-  // import { createClient } from '@supabase/supabase-js'
-  // const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY)
-  const { data, error } = await supabase.functions.invoke('send-notification', {
-    body: { name: 'Functions' },
-  })
-}
-sendPushNotification();
-
-// In your React Native app
-// const sendNotification = async (type, postId, userId, commentId = null) => {
-//   console.log("Sending notification");  
-//   const response = await fetch('https://vsupqohqsgmpvzaszmtb.supabase.co/functions/v1/send-push-notification', {
-//     method: 'POST',
-//     headers: {
-//       'Content-Type': 'application/json',
-//       'Authorization': `Bearer ${supabaseAnonKey}`
-//     },
-//     body: JSON.stringify({ type, postId, userId, commentId })
-//   });
-//   console.log("response",   response);
-// };
-
-// sendNotification('like', '123', '456');
-  // Helper function to get user bio or generate one
-  const getUserBio = (user) => {
-    if (user.about) return user.about;
-    if (user.interests && Array.isArray(user.interests) && user.interests.length > 0) {
-      return `Interested in ${user.interests[0]}`;
-    }
-    if (user.branch) return `Studying ${user.branch}`;
-    return sampleBios[Math.floor(Math.random() * sampleBios.length)];
-  };
-// net
-//   const testPushNotification = async () => {
-//   try {
-//     // Fetch all user IDs except the current user
-//     const { data: users, error: usersError } = await supabase
-//       .from('users')
-//       .select('id')
-//       .neq('id', currentUser.uid);
-
-//     if (usersError) {
-//       console.error('Error fetching users:', usersError);
-//       Alert.alert('Edge Function', `Error fetching users: ${usersError.message}`);
-//       return;
-//     }
-
-//     const user_ids = users?.map(u => u.id) || [];
-
-//     // Simulate a real post notification
-//     const payload = {
-//       user_ids,
-//       type: 'new_post',
-//       title: 'New Post!',
-//       message: 'A new post was created!',
-//       data: { post_id: 'test_post_id' }
-//     };
-
-//     console.log('Invoking send-push-notification with payload:', payload);
-
-//     const { data, error } = await supabase.functions.invoke('send-push-notification', {
-//       body: payload,
-//     });
-
-//     console.log('Edge function response:', { data, error });
-//     Alert.alert('Edge Function', error ? `Error: ${error.message}` : `Success: ${JSON.stringify(data)}`);
-//   } catch (err) {
-//     console.error('Error invoking edge function:', err);
-//     Alert.alert('Edge Function', `Error: ${err.message}`);
-//   }
-// };
-// testPushNotification();
 
   const loadRecommendations = async () => {
     try {
-      console.log('🔍 Loading user recommendations from Supabase...');
       setLoading(true);
+      console.log('🔍 Loading user recommendations from Supabase...');
 
       if (!currentUser?.uid) {
         console.log('❌ No current user found');
@@ -277,16 +207,16 @@ sendPushNotification();
 
       setUsers(transformedUsers);
       setTotalConnections(transformedUsers.length);
-      setLoading(false);
     } catch (error) {
-      console.error('❌ Error loading recommendations:', error);
-      Alert.alert('Error', 'Failed to load recommendations. Please try again.');
+      networkErrorHandler.showErrorToUser(error);
+    } finally {
       setLoading(false);
     }
   };
 
   const handleChatNavigation = async (user) => {
     try {
+      setLoading(true);
       if (!user?.userId && !user?.id) {
         Alert.alert('Error', 'Invalid recipient');
         return;
@@ -342,8 +272,9 @@ sendPushNotification();
       
       setSearchQuery('');
     } catch (error) {
-      console.error('Chat Navigation Error:', error);
-      Alert.alert('Navigation Failed', 'Could not start chat. Please try again.');
+      networkErrorHandler.showErrorToUser(error);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -736,37 +667,27 @@ const ProfileModal = ({ user, visible, onClose }) => (
         flex: 1,
         justifyContent: 'space-between',
       }}>
-        {/* Profile Avatar with Gradient Border */}
+        {/* Profile Avatar */}
         <View style={{ marginBottom: 12 }}>
-          <LinearGradient
-            colors={['#8B5CF6', '#EC4899', '#F59E0B']}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={{
-              padding: 3,
-              borderRadius: 35,
-            }}
-          >
-                         <View style={{
-               width: 64,
-               height: 64,
-               borderRadius: 32,
-               backgroundColor: theme.surface,
-               justifyContent: 'center',
-               alignItems: 'center',
-               borderWidth: 2,
-               borderColor: theme.primary,
-             }}>
-               <Text style={{
-                 color: theme.text,
-                 fontSize: 24,
-                 fontWeight: '800',
-                 letterSpacing: -0.3,
-               }}>
-                 {user.profile_initials || user.full_name?.charAt(0) || user.fullName?.charAt(0) || 'U'}
-               </Text>
-             </View>
-          </LinearGradient>
+          <View style={{
+            width: 64,
+            height: 64,
+            borderRadius: 32,
+            backgroundColor: theme.surface,
+            justifyContent: 'center',
+            alignItems: 'center',
+            borderWidth: 1,
+            borderColor: 'rgba(255, 255, 255, 0.1)',
+          }}>
+            <Text style={{
+              color: theme.text,
+              fontSize: 24,
+              fontWeight: '800',
+              letterSpacing: -0.3,
+            }}>
+              {user.profile_initials || user.full_name?.charAt(0) || user.fullName?.charAt(0) || 'U'}
+            </Text>
+          </View>
         </View>
         
         {/* User Info Container */}
@@ -875,36 +796,26 @@ const ProfileModal = ({ user, visible, onClose }) => (
       }}
     >
       {/* User Profile Avatar */}
-      <LinearGradient
-        colors={['#8B5CF6', '#EC4899']}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
-        style={{
-          padding: 2,
-          borderRadius: 30,
-          marginRight: 16,
-        }}
-      >
-                 <View style={{
-          width: 56,
-          height: 56,
-          borderRadius: 28,
-          backgroundColor: theme.surface,
-          justifyContent: 'center',
-          alignItems: 'center',
-          borderWidth: 2,
-          borderColor: theme.primary,
+      <View style={{
+        width: 56,
+        height: 56,
+        borderRadius: 28,
+        backgroundColor: theme.surface,
+        justifyContent: 'center',
+        alignItems: 'center',
+        borderWidth: 1,
+        borderColor: 'rgba(255, 255, 255, 0.1)',
+        marginRight: 16,
+      }}>
+        <Text style={{
+          color: theme.text,
+          fontSize: 20,
+          fontWeight: '800',
+          letterSpacing: -0.3,
         }}>
-          <Text style={{
-            color: theme.text,
-            fontSize: 20,
-            fontWeight: '800',
-            letterSpacing: -0.3,
-          }}>
-            {user.profile_initials || user.full_name?.charAt(0) || user.fullName?.charAt(0) || 'U'}
-          </Text>
-        </View>
-      </LinearGradient>
+          {user.profile_initials || user.full_name?.charAt(0) || user.fullName?.charAt(0) || 'U'}
+        </Text>
+      </View>
       
       {/* User Info */}
       <View style={{ flex: 1 }}>
@@ -953,11 +864,91 @@ const ProfileModal = ({ user, visible, onClose }) => (
 
   return (
     <ThemeContext.Provider value={{ isDarkMode, toggleTheme }}>
-    <SafeAreaView style={{ flex: 1, backgroundColor: theme.background, marginBottom: 30}}>
-     <StatusBar 
-               backgroundColor="#000000"
-               barStyle="light-content"
-             />
+    <View style={{ flex: 1 }}>
+      {/* Base dark background with purple tones */}
+      <LinearGradient 
+        colors={['#0a0a0a', '#1a1a2e', '#16213e', '#0f0f23']} 
+        style={{ 
+          position: 'absolute',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+        }}
+      />
+      
+      {/* Purple gradient overlays - inspired by your image */}
+      <LinearGradient
+        colors={['rgba(139, 69, 197, 0.15)', 'transparent', 'rgba(67, 56, 202, 0.2)']}
+        style={{
+          position: 'absolute',
+          top: -100,
+          left: -50,
+          width: screenWidth * 1.5,
+          height: screenHeight * 0.7,
+          borderRadius: screenWidth,
+          transform: [{ rotate: '12deg' }],
+        }}
+      />
+      
+      <LinearGradient
+        colors={['transparent', 'rgba(124, 58, 237, 0.12)', 'rgba(168, 85, 247, 0.08)']}
+        style={{
+          position: 'absolute',
+          top: screenHeight * 0.3,
+          right: -80,
+          width: screenWidth * 1.3,
+          height: screenHeight * 0.6,
+          borderRadius: screenWidth,
+          transform: [{ rotate: '-18deg' }],
+        }}
+      />
+
+      <LinearGradient
+        colors={['rgba(99, 102, 241, 0.1)', 'transparent', 'rgba(147, 51, 234, 0.15)']}
+        style={{
+          position: 'absolute',
+          bottom: -120,
+          left: -60,
+          width: screenWidth * 1.4,
+          height: screenHeight * 0.5,
+          borderRadius: screenWidth,
+          transform: [{ rotate: '25deg' }],
+        }}
+      />
+
+      {/* Subtle center accent gradient */}
+      <LinearGradient
+        colors={['transparent', 'rgba(79, 70, 229, 0.06)', 'transparent']}
+        style={{
+          position: 'absolute',
+          top: screenHeight * 0.15,
+          left: 0,
+          right: 0,
+          height: screenHeight * 0.3,
+        }}
+      />
+
+      {/* BlurView above gradients, below main content */}
+      <BlurView
+        style={{
+          position: 'absolute',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          zIndex: 10,
+        }}
+        intensity={40}
+        tint="dark"
+      />
+
+      {/* Main content */}
+      <SafeAreaView style={{ flex: 1, marginBottom: 30, zIndex: 20 }}>
+        <StatusBar 
+                 backgroundColor="#000000"
+                 barStyle="light-content"
+               />
 
       {/* Header Section */}
       <View
@@ -1167,7 +1158,8 @@ const ProfileModal = ({ user, visible, onClose }) => (
           setSelectedUser(null);
         }}
       />
-    </SafeAreaView>
+        </SafeAreaView>
+    </View>
     </ThemeContext.Provider>
 
   );

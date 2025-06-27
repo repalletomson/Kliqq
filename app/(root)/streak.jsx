@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef, useMemo } from 'react';
-import { View, Text, SafeAreaView, StatusBar, TouchableOpacity, ActivityIndicator, ScrollView, ImageBackground, Dimensions } from 'react-native';
+import { View, Text, SafeAreaView, StatusBar, TouchableOpacity, ActivityIndicator, ScrollView, ImageBackground, Dimensions, Image } from 'react-native';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView } from 'expo-blur';
@@ -28,130 +28,107 @@ const COLORS = {
 };
 
 const TimeLeftCard = ({ timeLeft }) => (
-  <View style={{
-    borderRadius: 20,
-    overflow: 'hidden',
-    width: '100%',
-    marginBottom: 20,
-    elevation: 8,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 10,
-  }}>
-    <BlurView 
-      style={{
-        padding: 24,
-        alignItems: 'center',
-      }}
-      intensity={50}
-      tint="dark"
-    >
-      <LinearGradient
-        colors={['rgba(0, 0, 0, 0.4)', 'rgba(0, 0, 0, 0.8)']}
-        style={{
-          position: 'absolute',
-          top: 0,
-          left: 0,
-          right: 0,
-          bottom: 0,
-        }}
-      />
-      <View style={{
-        borderWidth: 1,
-        borderColor: COLORS.border,
-        borderRadius: 16,
-        padding: 20,
-        backgroundColor: COLORS.cardInner,
-        alignItems: 'center',
-        width: '100%',
+  <BlurView 
+    style={{
+      borderRadius: 20,
+      overflow: 'hidden',
+      width: '100%',
+      marginBottom: 20,
+      padding: 24,
+      alignItems: 'center',
+      elevation: 8,
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: 0.3,
+      shadowRadius: 10,
+    }}
+    intensity={50}
+    tint="dark"
+  >
+    <Text style={{ 
+      color: COLORS.textSecondary, 
+      fontSize: 14, 
+      fontWeight: '500', 
+      marginBottom: 16,
+      textShadowColor: 'rgba(0, 0, 0, 0.5)',
+      textShadowOffset: { width: 0, height: 1 },
+      textShadowRadius: 3,
+    }}>
+      Time Left to Keep Streak
+    </Text>
+    <View style={{ flexDirection: 'row', alignItems: 'baseline' }}>
+      <Text style={{ 
+        color: COLORS.text, 
+        fontSize: 36, 
+        fontWeight: '700',
+        textShadowColor: 'rgba(0, 0, 0, 0.7)',
+        textShadowOffset: { width: 0, height: 2 },
+        textShadowRadius: 4,
       }}>
-        <Text style={{ 
-          color: COLORS.textSecondary, 
-          fontSize: 14, 
-          fontWeight: '500', 
-          marginBottom: 12,
-          textShadowColor: 'rgba(0, 0, 0, 0.5)',
-          textShadowOffset: { width: 0, height: 1 },
-          textShadowRadius: 3,
-        }}>
-          Time Left to Keep Streak
-        </Text>
-        <View style={{ flexDirection: 'row', alignItems: 'baseline' }}>
-          <Text style={{ 
-            color: COLORS.text, 
-            fontSize: 36, 
-            fontWeight: '700',
-            textShadowColor: 'rgba(0, 0, 0, 0.7)',
-            textShadowOffset: { width: 0, height: 2 },
-            textShadowRadius: 4,
-          }}>
-            {String(timeLeft.hours).padStart(2, '0')}
-          </Text>
-          <Text style={{ color: COLORS.textSecondary, fontSize: 20, marginHorizontal: 4 }}>h</Text>
-          <Text style={{ 
-            color: COLORS.text, 
-            fontSize: 36, 
-            fontWeight: '700',
-            textShadowColor: 'rgba(0, 0, 0, 0.7)',
-            textShadowOffset: { width: 0, height: 2 },
-            textShadowRadius: 4,
-          }}>
-            {String(timeLeft.minutes).padStart(2, '0')}
-          </Text>
-          <Text style={{ color: COLORS.textSecondary, fontSize: 20, marginHorizontal: 4 }}>m</Text>
-          <Text style={{ 
-            color: COLORS.text, 
-            fontSize: 36, 
-            fontWeight: '700',
-            textShadowColor: 'rgba(0, 0, 0, 0.7)',
-            textShadowOffset: { width: 0, height: 2 },
-            textShadowRadius: 4,
-          }}>
-            {String(timeLeft.seconds).padStart(2, '0')}
-          </Text>
-          <Text style={{ color: COLORS.textSecondary, fontSize: 20, marginLeft: 4 }}>s</Text>
-        </View>
-      </View>
-    </BlurView>
-  </View>
+        {String(timeLeft.hours).padStart(2, '0')}
+      </Text>
+      <Text style={{ color: COLORS.textSecondary, fontSize: 20, marginHorizontal: 4 }}>h</Text>
+      <Text style={{ 
+        color: COLORS.text, 
+        fontSize: 36, 
+        fontWeight: '700',
+        textShadowColor: 'rgba(0, 0, 0, 0.7)',
+        textShadowOffset: { width: 0, height: 2 },
+        textShadowRadius: 4,
+      }}>
+        {String(timeLeft.minutes).padStart(2, '0')}
+      </Text>
+      <Text style={{ color: COLORS.textSecondary, fontSize: 20, marginHorizontal: 4 }}>m</Text>
+      <Text style={{ 
+        color: COLORS.text, 
+        fontSize: 36, 
+        fontWeight: '700',
+        textShadowColor: 'rgba(0, 0, 0, 0.7)',
+        textShadowOffset: { width: 0, height: 2 },
+        textShadowRadius: 4,
+      }}>
+        {String(timeLeft.seconds).padStart(2, '0')}
+      </Text>
+      <Text style={{ color: COLORS.textSecondary, fontSize: 20, marginLeft: 4 }}>s</Text>
+    </View>
+  </BlurView>
 );
 
 const StreakCard = ({ streak, highestStreak }) => (
-  <View style={{ alignItems: 'center', marginBottom: 30 }}>
+  <View style={{ alignItems: 'center', marginBottom: 24 }}>
     <LinearGradient
       colors={[COLORS.accent, '#D97706']}
       style={{
-        width: 160,
-        height: 160,
-        borderRadius: 80,
+        width: 120,
+        height: 120,
+        borderRadius: 60,
         alignItems: 'center',
         justifyContent: 'center',
-        elevation: 10,
+        elevation: 8,
         shadowColor: COLORS.accent,
-        shadowOffset: { width: 0, height: 6 },
+        shadowOffset: { width: 0, height: 4 },
         shadowOpacity: 0.4,
-        shadowRadius: 12,
+        shadowRadius: 10,
       }}
     >
-      <MaterialCommunityIcons name="fire" size={64} color="#FFF" />
+      <MaterialCommunityIcons name="fire" size={48} color="#FFF" />
     </LinearGradient>
     <Text style={{
       color: COLORS.text,
-      fontSize: 72,
+      fontSize: 56,
       fontWeight: '900',
-      marginTop: -40,
+      marginTop: -30,
       textShadowColor: 'rgba(0, 0, 0, 0.5)',
       textShadowOffset: { width: 0, height: 2 },
       textShadowRadius: 4,
     }}>
       {streak}
     </Text>
-    <Text style={{ color: COLORS.textSecondary, fontSize: 18, fontFamily: 'GeneralSans-Semibold', marginTop: 4 }}>
+    <Text style={{ color: COLORS.textSecondary, fontSize: 16, fontFamily: 'GeneralSans-Semibold', marginTop: 4 }}>
       Day Streak
     </Text>
     {highestStreak > 0 && (
-      <Text style={{ color: COLORS.text, fontSize: 14, fontFamily: 'GeneralSans-Medium', marginTop: 8 }}>
+      <Text style={{ color: COLORS.text, fontSize: 13, fontFamily: 'GeneralSans-Medium', marginTop: 6 }}>
         Highest: {highestStreak}
       </Text>
     )}
@@ -256,122 +233,240 @@ const InfoCard = () => (
   </View>
 );
 
-const WeekOverview = ({ activeDates }) => {
-  const weekDays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-  const today = new Date();
-  const week = [];
+const TopStreakLeaderboard = () => {
+  const [topUsers, setTopUsers] = useState([]);
+  const [loading, setLoading] = useState(true);
 
-  for (let i = 6; i >= 0; i--) {
-    const date = new Date(today);
-    date.setDate(today.getDate() - i);
-    week.push(date);
-  }
+  useEffect(() => {
+    const fetchTopStreakUsers = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('streaks')
+          .select(`
+            highest_streak,
+            current_streak,
+            users:user_id (
+              full_name,
+              profile_image,
+              username
+            )
+          `)
+          .order('highest_streak', { ascending: false })
+          .limit(3);
 
-  const isDayActive = (date) => {
-    const dateString = date.toISOString().split('T')[0];
-    return activeDates.includes(dateString);
+        if (error) {
+          console.error('Error fetching top streak users:', error);
+        } else {
+          setTopUsers(data || []);
+        }
+      } catch (error) {
+        console.error('Error fetching top streak users:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchTopStreakUsers();
+  }, []);
+
+  const getPositionEmoji = (index) => {
+    switch (index) {
+      case 0: return '👑';
+      case 1: return '🥈';
+      case 2: return '🥉';
+      default: return '🏅';
+    }
+  };
+
+  const getPositionColors = (index) => {
+    switch (index) {
+      case 0: return { bg: 'rgba(255, 215, 0, 0.15)', border: '#FFD700', text: '#FFD700' };
+      case 1: return { bg: 'rgba(192, 192, 192, 0.15)', border: '#C0C0C0', text: '#C0C0C0' };
+      case 2: return { bg: 'rgba(205, 127, 50, 0.15)', border: '#CD7F32', text: '#CD7F32' };
+      default: return { bg: COLORS.cardInner, border: COLORS.border, text: COLORS.accent };
+    }
   };
 
   return (
-    <View style={{
-      borderRadius: 20,
-      overflow: 'hidden',
-      width: '100%',
-      marginTop: 20,
-      elevation: 8,
-      shadowColor: '#000',
-      shadowOffset: { width: 0, height: 4 },
-      shadowOpacity: 0.3,
-      shadowRadius: 10,
-    }}>
-      <BlurView 
+    <BlurView 
+      style={{
+        borderRadius: 24,
+        overflow: 'hidden',
+        width: '100%',
+        marginTop: 20,
+        elevation: 12,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 6 },
+        shadowOpacity: 0.4,
+        shadowRadius: 15,
+      }}
+      intensity={60}
+      tint="dark"
+    >
+      <LinearGradient
+        colors={['rgba(0, 0, 0, 0.85)', 'rgba(30, 30, 30, 0.9)', 'rgba(0, 0, 0, 0.85)']}
         style={{
           padding: 24,
         }}
-        intensity={40}
-        tint="dark"
       >
-                 <LinearGradient
-           colors={['rgba(0, 0, 0, 0.3)', 'rgba(0, 0, 0, 0.7)']}
-           style={{
-             position: 'absolute',
-             top: 0,
-             left: 0,
-             right: 0,
-             bottom: 0,
-           }}
-         />
-         <View style={{
-           borderWidth: 1,
-           borderColor: COLORS.border,
-           borderRadius: 16,
-           padding: 20,
-           backgroundColor: COLORS.cardInner,
-         }}>
+        {/* Header */}
+        <View style={{ 
+          alignItems: 'center', 
+          marginBottom: 24,
+          borderBottomWidth: 1,
+          borderBottomColor: 'rgba(255, 255, 255, 0.1)',
+          paddingBottom: 16,
+        }}>
           <Text style={{ 
             color: COLORS.text, 
-            fontSize: 16, 
-            fontWeight: '600', 
-            marginBottom: 16,
-            textShadowColor: 'rgba(0, 0, 0, 0.5)',
-            textShadowOffset: { width: 0, height: 1 },
-            textShadowRadius: 3,
+            fontSize: 20, 
+            fontWeight: '800', 
+            textAlign: 'center',
+            textShadowColor: 'rgba(0, 0, 0, 0.8)',
+            textShadowOffset: { width: 0, height: 2 },
+            textShadowRadius: 4,
+            letterSpacing: 0.5,
           }}>
-            Week Overview
+            🏆 STREAK LEGENDS
           </Text>
-          <View style={{ flexDirection: 'row', justifyContent: 'space-around' }}>
-            {week.map((day, index) => {
-              const isActive = isDayActive(day);
+          <Text style={{
+            color: COLORS.textSecondary,
+            fontSize: 14,
+            marginTop: 4,
+            opacity: 0.8,
+          }}>
+            Top performers this season
+          </Text>
+        </View>
+        
+        {loading ? (
+          <View style={{ alignItems: 'center', paddingVertical: 20 }}>
+            <ActivityIndicator size="large" color={COLORS.accent} />
+          </View>
+        ) : topUsers.length > 0 ? (
+          <View style={{ gap: 16 }}>
+            {topUsers.map((user, index) => {
+              const position = getPositionColors(index);
               return (
-                <View key={index} style={{ alignItems: 'center' }}>
-                  <Text style={{ 
-                    color: COLORS.textSecondary, 
-                    fontSize: 12, 
-                    marginBottom: 8, 
-                    fontFamily: 'GeneralSans-Medium',
-                    textShadowColor: 'rgba(0, 0, 0, 0.5)',
-                    textShadowOffset: { width: 0, height: 1 },
-                    textShadowRadius: 2,
-                  }}>
-                    {weekDays[day.getDay()]}
-                  </Text>
-                  <View style={{
-                    width: 36,
-                    height: 36,
-                    borderRadius: 18,
-                    backgroundColor: isActive ? COLORS.accent : 'rgba(255, 255, 255, 0.1)',
-                    justifyContent: 'center',
-                    alignItems: 'center',
-                    borderWidth: isActive ? 2 : 1,
-                    borderColor: isActive ? COLORS.accentLight : COLORS.borderSecondary,
-                    elevation: isActive ? 4 : 2,
-                    shadowColor: isActive ? COLORS.accent : '#000',
-                    shadowOffset: { width: 0, height: 2 },
-                    shadowOpacity: isActive ? 0.8 : 0.3,
-                    shadowRadius: isActive ? 8 : 3,
-                  }}>
-                    {isActive ? (
-                      <Ionicons name="checkmark" size={22} color="#FFF" />
-                    ) : (
-                      <Text style={{ 
-                        color: COLORS.text, 
-                        fontSize: 14, 
-                        fontFamily: 'GeneralSans-Bold',
-                        textShadowColor: 'rgba(0, 0, 0, 0.5)',
-                        textShadowOffset: { width: 0, height: 1 },
-                        textShadowRadius: 2,
+                <BlurView
+                  key={index}
+                  style={{
+                    borderRadius: 16,
+                    overflow: 'hidden',
+                    borderWidth: 1,
+                    borderColor: position.border,
+                  }}
+                  intensity={30}
+                  tint="dark"
+                >
+                  <LinearGradient
+                    colors={[position.bg, 'rgba(0, 0, 0, 0.3)']}
+                    style={{
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      padding: 16,
+                    }}
+                  >
+                    {/* Position & Avatar */}
+                    <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
+                      <View style={{
+                        width: 36,
+                        height: 36,
+                        borderRadius: 18,
+                        backgroundColor: position.bg,
+                        borderWidth: 2,
+                        borderColor: position.border,
+                        justifyContent: 'center',
+                        alignItems: 'center',
+                        marginRight: 12,
                       }}>
-                        {day.getDate()}
+                        <Text style={{ fontSize: 16 }}>
+                          {getPositionEmoji(index)}
+                        </Text>
+                      </View>
+                      
+                      <Image
+                        source={{ 
+                          uri: user.users?.profile_image || 'https://via.placeholder.com/45'
+                        }}
+                        style={{
+                          width: 45,
+                          height: 45,
+                          borderRadius: 22.5,
+                          borderWidth: 2,
+                          borderColor: position.border,
+                          marginRight: 12,
+                        }}
+                      />
+                      
+                      <View style={{ flex: 1 }}>
+                        <Text style={{
+                          color: COLORS.text,
+                          fontSize: 16,
+                          fontWeight: '600',
+                          marginBottom: 2,
+                        }} numberOfLines={1}>
+                          {user.users?.full_name || 'Anonymous'}
+                        </Text>
+                        <Text style={{
+                          color: COLORS.textSecondary,
+                          fontSize: 12,
+                          opacity: 0.8,
+                        }}>
+                          @{user.users?.username || 'user'}
+                        </Text>
+                      </View>
+                    </View>
+
+                    {/* Streak Count */}
+                    <View style={{ alignItems: 'center' }}>
+                      <Text style={{
+                        color: position.text,
+                        fontSize: 22,
+                        fontWeight: '800',
+                        textShadowColor: 'rgba(0, 0, 0, 0.8)',
+                        textShadowOffset: { width: 0, height: 1 },
+                        textShadowRadius: 3,
+                      }}>
+                        {user.highest_streak || 0}
                       </Text>
-                    )}
-                  </View>
-                </View>
+                      <Text style={{
+                        color: COLORS.textSecondary,
+                        fontSize: 11,
+                        fontWeight: '500',
+                        marginTop: 2,
+                      }}>
+                        days 🔥
+                      </Text>
+                    </View>
+                  </LinearGradient>
+                </BlurView>
               );
             })}
           </View>
-        </View>
-      </BlurView>
-    </View>
+        ) : (
+          <View style={{ alignItems: 'center', paddingVertical: 20 }}>
+            <Text style={{
+              color: COLORS.textSecondary,
+              fontSize: 16,
+              textAlign: 'center',
+              opacity: 0.8,
+            }}>
+              No streak data available yet
+            </Text>
+            <Text style={{
+              color: COLORS.textSecondary,
+              fontSize: 14,
+              textAlign: 'center',
+              marginTop: 8,
+              opacity: 0.6,
+            }}>
+              Start posting to build your streak! 🔥
+            </Text>
+          </View>
+        )}
+      </LinearGradient>
+    </BlurView>
   );
 };
 
@@ -458,9 +553,9 @@ export default function StreakPage() {
 
   return (
     <View style={{ flex: 1 }}>
-      {/* Background with dynamic gradients */}
+      {/* Base dark background with purple tones */}
       <LinearGradient 
-        colors={['#000000', '#1a1a1a', '#000000']} 
+        colors={['#0a0a0a', '#1a1a2e', '#16213e', '#0f0f23']} 
         style={{ 
           position: 'absolute',
           top: 0,
@@ -470,39 +565,64 @@ export default function StreakPage() {
         }}
       />
       
-      {/* Animated background elements */}
+      {/* Purple gradient overlays - inspired by your image */}
       <LinearGradient
-        colors={['rgba(50, 50, 50, 0.3)', 'transparent', 'rgba(30, 30, 30, 0.4)']}
+        colors={['rgba(139, 69, 197, 0.15)', 'transparent', 'rgba(67, 56, 202, 0.2)']}
         style={{
           position: 'absolute',
           top: -100,
           left: -50,
           width: screenWidth * 1.5,
-          height: screenHeight * 0.6,
+          height: screenHeight * 0.7,
           borderRadius: screenWidth,
-          transform: [{ rotate: '15deg' }],
+          transform: [{ rotate: '12deg' }],
         }}
       />
       
       <LinearGradient
-        colors={['transparent', 'rgba(40, 40, 40, 0.2)', 'rgba(20, 20, 20, 0.3)']}
+        colors={['transparent', 'rgba(124, 58, 237, 0.12)', 'rgba(168, 85, 247, 0.08)']}
         style={{
           position: 'absolute',
-          bottom: -150,
-          right: -100,
-          width: screenWidth * 1.2,
-          height: screenHeight * 0.5,
+          top: screenHeight * 0.3,
+          right: -80,
+          width: screenWidth * 1.3,
+          height: screenHeight * 0.6,
           borderRadius: screenWidth,
-          transform: [{ rotate: '-20deg' }],
+          transform: [{ rotate: '-18deg' }],
         }}
       />
 
-                    {/* Main blur overlay */}
-       <BlurView 
-         style={{ flex: 1 }}
-          intensity={25}
-          tint="dark"
-       >
+      <LinearGradient
+        colors={['rgba(99, 102, 241, 0.1)', 'transparent', 'rgba(147, 51, 234, 0.15)']}
+        style={{
+          position: 'absolute',
+          bottom: -120,
+          left: -60,
+          width: screenWidth * 1.4,
+          height: screenHeight * 0.5,
+          borderRadius: screenWidth,
+          transform: [{ rotate: '25deg' }],
+        }}
+      />
+
+      {/* Subtle center accent gradient */}
+      <LinearGradient
+        colors={['transparent', 'rgba(79, 70, 229, 0.06)', 'transparent']}
+        style={{
+          position: 'absolute',
+          top: screenHeight * 0.15,
+          left: 0,
+          right: 0,
+          height: screenHeight * 0.3,
+        }}
+      />
+
+      {/* Main blur overlay */}
+      <BlurView 
+        style={{ flex: 1 }}
+        intensity={35}
+        tint="dark"
+      >
         <SafeAreaView style={{ flex: 1 }}>
           <StatusBar barStyle="light-content" />
           
@@ -594,7 +714,7 @@ export default function StreakPage() {
                 streak={streakData?.current_streak || 0} 
                 highestStreak={streakData?.highest_streak || 0}
               />
-              <WeekOverview activeDates={weeklyActivity} />
+              <TopStreakLeaderboard />
               {!goalCompleted ? (
                 <TimeLeftCard timeLeft={timeLeft} />
               ) : null}

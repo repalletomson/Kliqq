@@ -14,6 +14,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useAuth } from '../../context/authContext';
 import { useSafeNavigation } from '../../hooks/useSafeNavigation';
+import { supabase } from '../../config/supabaseConfig';
 
 const COLORS = {
   background: '#000000',
@@ -29,7 +30,7 @@ const COLORS = {
 
 const SettingsPage = () => {
   const router = useRouter();
-  const { loginOut } = useAuth();
+  const { loginOut, user } = useAuth();
   const { safeBack } = useSafeNavigation({
     modals: [
       () => modalConfig.visible && setModalConfig({ visible: false, title: '', content: '' })
@@ -40,6 +41,8 @@ const SettingsPage = () => {
   });
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
   const [modalConfig, setModalConfig] = useState({ visible: false, title: '', content: '' });
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   const handleLogout = () => {
     Alert.alert(
@@ -69,6 +72,32 @@ const SettingsPage = () => {
 
   const hideModal = () => {
     setModalConfig({ visible: false, title: '', content: '' });
+  };
+
+  const handleDeleteAccount = async () => {
+    setDeleting(true);
+    try {
+      // 1. Delete user data from your tables (posts, comments, likes, etc.)
+      // Example for Supabase:
+      if (user?.uid) {
+        await supabase.from('likes').delete().eq('user_id', user.uid);
+        await supabase.from('comments').delete().eq('user_id', user.uid);
+        await supabase.from('posts').delete().eq('user_id', user.uid);
+        await supabase.from('users').delete().eq('id', user.uid);
+      }
+      // 2. Delete user from auth
+      if (supabase.auth) {
+        await supabase.auth.admin.deleteUser(user.uid);
+      }
+      // 3. Log out
+      await loginOut();
+    } catch (error) {
+      Alert.alert('Error', 'Failed to delete account. Please try again.');
+      setDeleting(false);
+      return;
+    }
+    setDeleting(false);
+    setShowDeleteModal(false);
   };
 
   const renderSettingItem = ({ icon, title, onPress, value, isSwitch, isLast, isDestructive }) => (
@@ -220,23 +249,21 @@ const SettingsPage = () => {
           </View>
         </View>
 
-        {/* Danger Zone */}
+        {/* Delete Account Section */}
         <View style={{ marginBottom: 24 }}>
-          <Text style={{
-            fontSize: 16,
-            fontWeight: '600',
-            color: COLORS.textMuted,
-            marginLeft: 20,
-            marginBottom: 8,
-          }}>
-            Danger Zone
-          </Text>
           <View style={{
             backgroundColor: COLORS.cardBg,
             borderRadius: 12,
             marginHorizontal: 16,
             overflow: 'hidden',
           }}>
+            {renderSettingItem({
+              icon: 'trash-outline',
+              title: 'Delete Account',
+              onPress: () => setShowDeleteModal(true),
+              isDestructive: true,
+              isLast: false,
+            })}
             {renderSettingItem({
               icon: 'log-out-outline',
               title: 'Logout',
@@ -289,6 +316,41 @@ const SettingsPage = () => {
               <Text style={{ color: COLORS.textSecondary, fontSize: 16 }}>
                 {modalConfig.content}
               </Text>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Delete Account Modal */}
+      <Modal
+        visible={showDeleteModal}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setShowDeleteModal(false)}
+      >
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center' }}>
+          <View style={{ backgroundColor: COLORS.cardBg, borderRadius: 20, padding: 28, width: '80%' }}>
+            <Text style={{ color: COLORS.danger, fontSize: 20, fontWeight: '700', marginBottom: 16, textAlign: 'center' }}>
+              Delete Account
+            </Text>
+            <Text style={{ color: COLORS.textSecondary, fontSize: 16, marginBottom: 24, textAlign: 'center' }}>
+              Are you sure you want to delete your account? This action cannot be undone.
+            </Text>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 8 }}>
+              <TouchableOpacity
+                onPress={() => setShowDeleteModal(false)}
+                style={{ flex: 1, padding: 12, borderRadius: 12, backgroundColor: COLORS.inputBg, marginRight: 8, alignItems: 'center' }}
+                disabled={deleting}
+              >
+                <Text style={{ color: COLORS.text, fontSize: 16, fontWeight: '600' }}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={handleDeleteAccount}
+                style={{ flex: 1, padding: 12, borderRadius: 12, backgroundColor: COLORS.danger, marginLeft: 8, alignItems: 'center', opacity: deleting ? 0.7 : 1 }}
+                disabled={deleting}
+              >
+                <Text style={{ color: '#fff', fontSize: 16, fontWeight: '700' }}>{deleting ? 'Deleting...' : 'Yes, Delete'}</Text>
+              </TouchableOpacity>
             </View>
           </View>
         </View>

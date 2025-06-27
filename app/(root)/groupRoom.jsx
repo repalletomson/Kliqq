@@ -40,6 +40,7 @@ import {
 } from '../../lib/firebase';
 import { supabase } from '../../config/supabaseConfig';
 import { useAuth } from '../../context/authContext';
+import networkErrorHandler from '../utiles/networkErrorHandler';
 
 const { width } = Dimensions.get('window');
 const SECRET_KEY = "kliq-secure-messaging-2024";
@@ -519,23 +520,21 @@ const GroupRoomScreen = () => {
 
   // Data fetching with error handling
   const fetchInitialData = async () => {
-    if (!isMountedRef.current) return;
-    
-    setLoading(true);
-    setError(null);
-    cleanup();
-
-    // Add loading timeout
-    loadingTimeoutRef.current = setTimeout(() => {
-      if (isMountedRef.current) {
-        setLoading(false);
-        setError('Loading timed out. Please check your connection and try again.');
-      }
-    }, 10000);
-
     try {
+      setLoading(true);
+      setError(null);
+      cleanup();
+
+      // Add loading timeout
+      loadingTimeoutRef.current = setTimeout(() => {
+        if (isMountedRef.current) {
+          setLoading(false);
+          setError('Loading timed out. Please check your connection and try again.');
+        }
+      }, 10000);
+
       // Update current user's last seen
-      updateLastSeen();
+      await updateLastSeen();
 
       // Fetch group members
       try {
@@ -615,7 +614,7 @@ const GroupRoomScreen = () => {
         }
       }
     } catch (error) {
-      console.error('Error in fetchInitialData:', error);
+      networkErrorHandler.showErrorToUser(error);
       if (isMountedRef.current) {
         setError('An unexpected error occurred. Please try again.');
         setLoading(false);
@@ -658,7 +657,7 @@ const GroupRoomScreen = () => {
         }
       }, 100);
     } catch (error) {
-      console.error('Error sending message:', error);
+      networkErrorHandler.showErrorToUser(error);
       if (isMountedRef.current) {
         Alert.alert('Error', 'Failed to send message. Please try again.');
       }
@@ -674,7 +673,7 @@ const GroupRoomScreen = () => {
       setMessageToDelete(null);
       Alert.alert("Message Deleted", "The message has been deleted successfully.");
     } catch (error) {
-      console.error('Error deleting message:', error);
+      networkErrorHandler.showErrorToUser(error);
       Alert.alert("Error", "Failed to delete message");
     }
   };

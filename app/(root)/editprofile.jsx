@@ -21,6 +21,7 @@ import { MaterialIcons, Ionicons, AntDesign, Feather } from '@expo/vector-icons'
 import { useSafeNavigation } from '../../hooks/useSafeNavigation';
 import { useAuth } from '../../context/authContext';
 import { supabase } from '../../config/supabaseConfig';
+import networkErrorHandler from '../utiles/networkErrorHandler';
 
 const { width } = Dimensions.get('window');
 
@@ -91,6 +92,7 @@ const EditProfile = () => {
   useEffect(() => {
     const loadUserData = async () => {
       try {
+        setLoading(true);
         if (!user?.uid) {
           console.error('No user ID available');
           if (isMounted.current) {
@@ -136,12 +138,9 @@ const EditProfile = () => {
           setLoading(false);
         }
       } catch (error) {
-        console.error('Error in loadUserData:', error);
-        if (isMounted.current) {
-          setLoading(false);
-          Alert.alert('Error', 'An unexpected error occurred. Please try again.');
-          safeBack();
-        }
+        networkErrorHandler.showErrorToUser(error);
+      } finally {
+        setLoading(false);
       }
     };
 
@@ -190,24 +189,23 @@ const EditProfile = () => {
   };
 
   const handleSave = async () => {
-    if (!userData || !user?.uid) {
-      Alert.alert('Error', 'Unable to save changes. Please try again.');
-      return;
-    }
-
-    // Validation
-    if (!userData.full_name?.trim()) {
-      Alert.alert('Required Field', 'Please enter your full name.');
-      return;
-    }
-
-    if (!userData.username?.trim()) {
-      Alert.alert('Required Field', 'Please enter your username.');
-      return;
-    }
-
     try {
       setSaving(true);
+      if (!userData || !user?.uid) {
+        Alert.alert('Error', 'Unable to save changes. Please try again.');
+        return;
+      }
+
+      // Validation
+      if (!userData.full_name?.trim()) {
+        Alert.alert('Required Field', 'Please enter your full name.');
+        return;
+      }
+
+      if (!userData.username?.trim()) {
+        Alert.alert('Required Field', 'Please enter your username.');
+        return;
+      }
 
       const updateData = {
         id: user.uid,
@@ -234,14 +232,9 @@ const EditProfile = () => {
         safeBack();
       }
     } catch (error) {
-      console.error('Error saving profile:', error);
-      if (isMounted.current) {
-        Alert.alert('Error', 'Failed to save changes. Please try again.');
-      }
+      networkErrorHandler.showErrorToUser(error);
     } finally {
-      if (isMounted.current) {
-        setSaving(false);
-      }
+      setSaving(false);
     }
   };
 

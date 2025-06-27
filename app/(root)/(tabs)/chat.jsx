@@ -14,7 +14,8 @@ import {
   Pressable,
   ActivityIndicator,
   Animated,
-  Dimensions
+  Dimensions,
+  StyleSheet
 } from 'react-native';
 import { MaterialIcons, Ionicons } from '@expo/vector-icons';
 import {
@@ -42,6 +43,7 @@ import { CHAT_TYPES } from '../../../types/index';
 import { AES, enc } from "react-native-crypto-js";
 import { AppText } from '../../_layout';
 import { useSafeNavigation } from '../../../hooks/useSafeNavigation';
+import networkErrorHandler from '../../../utiles/networkErrorHandler';
 
 const DEFAULT_PROFILE='https://assets.grok.com/users/8c354dfe-946c-4a32-b2de-5cb3a8ab9776/generated/h4epnwdFODX6hW0L/image.jpg';
 
@@ -296,8 +298,8 @@ export default function ChatList() {
         }
       });
       
-    } catch (err) {
-      console.error("Failed to initialize chat list:", err);
+    } catch (error) {
+      networkErrorHandler.showErrorToUser(error);
       if (mounted.current) {
         setError('Failed to initialize chat list');
         setLoading(false);
@@ -375,7 +377,7 @@ export default function ChatList() {
       console.log('Search results set:', transformedUsers.length);
       
     } catch (error) {
-      console.error('❌ Search error:', error);
+      networkErrorHandler.showErrorToUser(error);
       setSearchResults([]);
     } finally {
       setSearching(false);
@@ -411,7 +413,7 @@ export default function ChatList() {
       setSelectedChat(null);
       Alert.alert('Success', 'Chat deleted successfully');
     } catch (error) {
-      console.error('Delete error:', error);
+      networkErrorHandler.showErrorToUser(error);
       Alert.alert('Error', 'Failed to delete chat');
     } finally {
       setLoading(false);
@@ -477,7 +479,7 @@ export default function ChatList() {
       }
       setSearchQuery('');
     } catch (error) {
-      console.error('Chat navigation error:', error);
+      networkErrorHandler.showErrorToUser(error);
       Alert.alert('Error', 'Failed to navigate to chat');
     }
   }, [user.uid, loadChats]);
@@ -526,7 +528,7 @@ export default function ChatList() {
       }
       setSearchQuery('');
     } catch (error) {
-      console.error('Chat navigation error:', error);
+      networkErrorHandler.showErrorToUser(error);
       Alert.alert('Error', 'Failed to navigate to chat');
     }
   }, [user.uid]);
@@ -915,12 +917,11 @@ export default function ChatList() {
   );
 
   return (
-    <View style={{ flex: 1, backgroundColor: COLORS.background }}>
+    <View style={{ flex: 1, backgroundColor: 'transparent' }}>
       <StatusBar barStyle="light-content" backgroundColor={COLORS.background} />
-      
+      {/* Main content over glassmorphism background */}
       <Header />
       <SearchBar />
-
       <FlatList
         data={chats}
         keyExtractor={item => item.id}
@@ -938,7 +939,10 @@ export default function ChatList() {
             justifyContent: 'center',
             alignItems: 'center',
             padding: 40,
-            marginTop: 80
+            marginTop: 80,
+            backgroundColor: 'rgba(0,0,0,0.7)',
+            borderRadius: 24,
+            overflow: 'hidden',
           }}>
             <Ionicons name="chatbubbles-outline" size={64} color={COLORS.textTertiary} />
             <AppText style={{

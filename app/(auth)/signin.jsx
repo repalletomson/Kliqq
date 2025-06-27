@@ -12,6 +12,8 @@ import {
   Dimensions,
   Image,
   Modal,
+  StyleSheet,
+  ActivityIndicator,
 } from 'react-native';
 import { router, useNavigation } from 'expo-router';
 import { AntDesign, MaterialIcons, Feather } from '@expo/vector-icons';
@@ -95,113 +97,24 @@ const StablePasswordInput = React.memo(({
 
 StablePasswordInput.displayName = 'StablePasswordInput';
 
-// Error Modal Component
-const ErrorModal = ({ visible, message, type, onClose }) => {
-  const modalScale = useSharedValue(0);
-  const modalOpacity = useSharedValue(0);
-
-  useEffect(() => {
-    if (visible) {
-      modalOpacity.value = withTiming(1, { duration: 300 });
-      modalScale.value = withSpring(1, { damping: 15 });
-    } else {
-      modalOpacity.value = withTiming(0, { duration: 200 });
-      modalScale.value = withTiming(0, { duration: 200 });
-    }
-  }, [visible]);
-
-  const animatedStyle = useAnimatedStyle(() => {
-    return {
-      opacity: modalOpacity.value,
-      transform: [{ scale: modalScale.value }],
-    };
-  });
-
-  const getIcon = () => {
-    switch (type) {
-      case 'error':
-        return <MaterialIcons name="error-outline" size={32} color="#EF4444" />;
-      case 'success':
-        return <MaterialIcons name="check-circle-outline" size={32} color="#10B981" />;
-      default:
-        return <MaterialIcons name="info-outline" size={32} color="#3B82F6" />;
-    }
-  };
-
-  return (
-    <Modal
-      transparent
-      visible={visible}
-      animationType="none"
-      onRequestClose={onClose}
-    >
-      <View style={{
-        flex: 1,
-        backgroundColor: 'rgba(0, 0, 0, 0.8)',
-        justifyContent: 'center',
-        alignItems: 'center',
-        paddingHorizontal: 24,
-      }}>
-        <Animated.View style={[{
-          backgroundColor: '#1A1A1A',
-          borderRadius: 20,
-          padding: 24,
-          width: '100%',
-          maxWidth: 350,
-          borderWidth: 1,
-          borderColor: '#404040',
-        }, animatedStyle]}>
-          {/* Icon */}
-          <View style={{ alignItems: 'center', marginBottom: 16 }}>
-            {getIcon()}
-          </View>
-
-          {/* Title */}
-          <Text style={{
-            color: '#FFFFFF',
-            fontSize: 18,
-            fontWeight: '700',
-            textAlign: 'center',
-            marginBottom: 12,
-          }}>
-            {type === 'error' ? 'Authentication Error' : 
-             type === 'success' ? 'Success' : 'Information'}
-          </Text>
-
-          {/* Message */}
-          <Text style={{
-            color: '#CCCCCC',
-            fontSize: 15,
-            textAlign: 'center',
-            lineHeight: 22,
-            marginBottom: 24,
-          }}>
-            {message}
-          </Text>
-
-          {/* Button */}
-          <TouchableOpacity
-            onPress={onClose}
-            style={{
-              backgroundColor: '#FFFFFF',
-              borderRadius: 12,
-              paddingVertical: 14,
-              alignItems: 'center',
-            }}
-          >
-            <Text style={{
-              color: '#000000',
-              fontSize: 16,
-              fontWeight: '600',
-            }}>
-              {type === 'success' ? 'Continue' : 'Try Again'}
-            </Text>
-          </TouchableOpacity>
-        </Animated.View>
+// Simple, unified modal for all error/info messages
+const SimpleModal = ({ visible, message, onClose }) => (
+  <Modal
+    visible={visible}
+    transparent
+    animationType="fade"
+    onRequestClose={onClose}
+  >
+    <View style={styles.modalOverlay}>
+      <View style={styles.modalContent}>
+        <Text style={styles.modalMessage}>{message}</Text>
+        <TouchableOpacity onPress={onClose} style={styles.modalButton}>
+          <Text style={styles.modalButtonText}>OK</Text>
+        </TouchableOpacity>
       </View>
-    </Modal>
-  );
-};
+    </View>
+  </Modal>
+);
 
 // Black theme colors
 const colors = {
@@ -256,7 +169,8 @@ function SigninScreen() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
-  const [errorModal, setErrorModal] = useState({ visible: false, message: '', type: 'error' });
+  const [modalVisible, setModalVisible] = useState(false);
+  const [modalMessage, setModalMessage] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const { login } = useAuth();
   const [isGoogleEmail, setIsGoogleEmail] = useState(false);
@@ -291,17 +205,10 @@ function SigninScreen() {
     configureGoogleSignIn();
   }, []);
 
-  const showError = useCallback((message, type = 'error') => {
-    setErrorModal({ visible: true, message, type });
-  }, []);
-
-  const hideError = useCallback(() => {
-    setErrorModal({ visible: false, message: '', type: 'error' });
-  }, []);
-
   const handleLogin = useCallback(async () => {
     if (!email || !password) {
-      showError('Please enter both email and password to continue.');
+      setModalMessage('Please enter both email and password to continue.');
+      setModalVisible(true);
       return;
     }
 
@@ -313,10 +220,12 @@ function SigninScreen() {
       const response = await login(email.trim(), password);
       
       if (response) {
-        showError('Welcome back! Redirecting to your dashboard...', 'success');
+        setModalMessage('Welcome back! Redirecting to your dashboard...');
+        setModalVisible(true);
         
         setTimeout(() => {
-          hideError();
+          setLoading(false);
+          buttonScale.value = withSpring(1);
           router.push('/(root)/(tabs)/home');
         }, 1500);
       }
@@ -327,12 +236,13 @@ function SigninScreen() {
     } catch (error) {
       console.error('Login error:', error);
       const errorMessage = getErrorMessage(error);
-      showError(errorMessage);
+      setModalMessage(errorMessage);
+      setModalVisible(true);
       buttonScale.value = withSpring(1);
     } finally {
       setLoading(false);
     }
-  }, [email, password, login, showError, hideError]);
+  }, [email, password, login]);
 
   const handleGoogleSignIn = useCallback(async () => {
     try {
@@ -353,8 +263,8 @@ function SigninScreen() {
         setEmail(data.user.email);
         setIsGoogleEmail(true);
 
-        showError('Google account connected successfully! Please enter your password to continue.', 'success');
-        setTimeout(() => hideError(), 2000);
+        setModalMessage('Google account connected successfully! Please enter your password to continue.');
+        setModalVisible(true);
       }
       
       setTimeout(() => {
@@ -373,16 +283,18 @@ function SigninScreen() {
         errorMessage = 'Google Play Services is not available. Please update Google Play Services.';
       }
       
-      showError(errorMessage);
+      setModalMessage(errorMessage);
+      setModalVisible(true);
       buttonScale.value = withSpring(1);
     } finally {
       setLoading(false);
     }
-  }, [showError, hideError]);
+  }, []);
 
   const handleForgotPassword = useCallback(async () => {
     if (!email.trim()) {
-      showError('Please enter your email address first, then try the forgot password option.');
+      setModalMessage('Please enter your email address first, then try the forgot password option.');
+      setModalVisible(true);
       return;
     }
 
@@ -404,10 +316,10 @@ function SigninScreen() {
                 throw error;
               }
 
-              showError('Password reset email sent successfully! Please check your inbox and follow the instructions.', 'success');
+              setModalMessage('Password reset email sent successfully! Please check your inbox and follow the instructions.');
             } catch (error) {
               console.error('Password reset error:', error);
-              showError('Failed to send reset email. Please check your email address and try again.');
+              setModalMessage('Failed to send reset email. Please check your email address and try again.');
             } finally {
               setResetLoading(false);
             }
@@ -415,7 +327,7 @@ function SigninScreen() {
         }
       ]
     );
-  }, [email, showError]);
+  }, [email]);
 
   const AnimatedButton = ({ title, onPress, disabled, variant = 'primary' }) => {
     const animatedStyle = useAnimatedStyle(() => {
@@ -697,15 +609,54 @@ function SigninScreen() {
         </ScrollView>
       </KeyboardAvoidingView>
 
-      {/* Error Modal */}
-      <ErrorModal
-        visible={errorModal.visible}
-        message={errorModal.message}
-        type={errorModal.type}
-        onClose={hideError}
-      />
+      {/* Simple Modal */}
+      <SimpleModal visible={modalVisible} message={modalMessage} onClose={() => setModalVisible(false)} />
     </View>
   );
 }
+
+const styles = StyleSheet.create({
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.7)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 1000,
+    elevation: 1000,
+  },
+  modalContent: {
+    backgroundColor: '#18181B',
+    borderRadius: 18,
+    padding: 28,
+    alignItems: 'center',
+    maxWidth: 320,
+    width: '85%',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.4,
+    shadowRadius: 16,
+    elevation: 12,
+  },
+  modalMessage: {
+    color: '#fff',
+    fontSize: 16,
+    textAlign: 'center',
+    marginBottom: 18,
+    fontWeight: '500',
+  },
+  modalButton: {
+    backgroundColor: '#8B5CF6',
+    borderRadius: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 32,
+    alignItems: 'center',
+    marginTop: 4,
+  },
+  modalButtonText: {
+    color: '#fff',
+    fontWeight: '700',
+    fontSize: 16,
+  },
+});
 
 export default SigninScreen;

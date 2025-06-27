@@ -14,6 +14,7 @@ import { useNavigation, router } from 'expo-router';
 import { useAuth } from '../../../context/authContext';
 import { supabase } from '../../../config/supabaseConfig';
 import { AppText } from '../../_layout';
+import networkErrorHandler from '../../../utiles/networkErrorHandler';
 
 // Consistent Color Palette - WhatsApp-like Black Theme
 const COLORS = {
@@ -82,7 +83,7 @@ export default function GroupList() {
         setUserGroups(userData?.groups || []);
       }
     } catch (error) {
-      console.error('❌ Error in fetchUserGroups:', error);
+      networkErrorHandler.showErrorToUser(error);
       setUserGroups([]);
     } finally {
       setLoading(false);
@@ -113,6 +114,7 @@ export default function GroupList() {
 
   const updateUserGroupsInSupabase = async (groupId) => {
     try {
+      setLoading(true);
       console.log('🔄 Updating user groups in Supabase...');
       
       const { error } = await supabase
@@ -129,8 +131,10 @@ export default function GroupList() {
       console.log('✅ User groups updated in Supabase');
       return true;
     } catch (error) {
-      console.error('❌ Error updating user groups in Supabase:', error);
+      networkErrorHandler.showErrorToUser(error);
       return false;
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -181,7 +185,7 @@ export default function GroupList() {
       console.log('✅ Successfully joined group');
       
     } catch (error) {
-      console.error('❌ Error joining group:', error);
+      networkErrorHandler.showErrorToUser(error);
       Alert.alert('Error', 'Failed to join group. Please try again.');
     } finally {
       setLoading(false);

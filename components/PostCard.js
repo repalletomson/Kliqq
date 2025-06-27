@@ -943,6 +943,8 @@ const PostCard = ({ post, isDetailView = false, isHotPost = false, enableRealTim
           shadowOpacity: 0,
           shadowRadius: 0,
           elevation: 0,
+          paddingTop: 20,
+          paddingBottom: 20,
         }}
       >
         {/* User Header */}

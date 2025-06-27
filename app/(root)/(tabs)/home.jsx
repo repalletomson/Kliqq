@@ -33,6 +33,7 @@ import SafeViewErrorBoundary from '../../../components/SafeViewErrorBoundary';
 import { useSafeNavigation } from '../../../hooks/useSafeNavigation';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import EventEmitter from '../../../utiles/EventEmitter';
+import networkErrorHandler from '../../../utiles/networkErrorHandler';
 
 const { width } = Dimensions.get('window');
 const SLIDER_WIDTH = width;
@@ -48,6 +49,12 @@ const COLORS = {
 
 const POSTS_CACHE_KEY = '@posts_cache';
 const POSTS_CACHE_EXPIRY = 5 * 60 * 1000; // 5 minutes
+
+const carouselImages = [
+  require('../../../assets/images/postCarousel.jpeg'),
+  require('../../../assets/images/moviesuggestions.jpeg'),
+  require('../../../assets/images/Gaming.jpeg'),
+];
 
 export default function EnhancedHome() {
   const [posts, setPosts] = useState([]);
@@ -92,15 +99,18 @@ export default function EnhancedHome() {
     });
 
     const channel = supabase
-      .channel('realtime-posts-feed')
-      .on(
-        'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'posts' },
-        () => {
-          fetchPosts(true); // Refetch posts on new posts
-        }
-      )
-      .subscribe();
+    .channel('realtime-posts-feed')
+    .on(
+      'postgres_changes',
+      { event: 'INSERT', schema: 'public', table: 'posts' },
+      (payload) => {
+        console.log('Realtime insert event:', payload);
+        fetchPosts(true);
+      }
+    )
+    .subscribe((status) => {
+      console.log('Subscription status:', status);
+    });
 
     const deleteListener = EventEmitter.on('post-deleted', (deletedPostId) => {
       if (isMounted.current) {
@@ -116,6 +126,24 @@ export default function EnhancedHome() {
     };
   }, [user?.uid]);
 
+  useEffect(() => {
+    const channel = supabase
+      .channel('test-realtime')
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'posts' },
+        (payload) => {
+          console.log('Realtime insert event:', payload);
+        }
+      )
+      .subscribe((status) => {
+        console.log('Subscription status:', status);
+      });
+  
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, []);
   const colors = {
     background: theme === 'dark' ? '#000000' : '#FFFFFF',
     text: theme === 'dark' ? '#FFFFFF' : '#1F1F1F',
@@ -163,6 +191,7 @@ export default function EnhancedHome() {
       return postsWithEngagement.length > 0 ? postsWithEngagement[0] : null;
     } catch (error) {
       console.error('Error fetching hot post:', error);
+      networkErrorHandler.showErrorToUser(error);
       return null;
     }
   };
@@ -241,6 +270,7 @@ export default function EnhancedHome() {
 
       if (error) {
         console.error('Error fetching posts:', error);
+        networkErrorHandler.showErrorToUser(error);
         return;
       }
 
@@ -263,6 +293,7 @@ export default function EnhancedHome() {
       await cachePosts(transformedPosts);
     } catch (error) {
       console.error('Error in fetchPosts:', error);
+      networkErrorHandler.showErrorToUser(error);
     } finally {
       if (isMounted.current) {
         setLoading(false);
@@ -357,7 +388,7 @@ export default function EnhancedHome() {
     return (
       <TouchableOpacity onPress={() => router.push(`/postDetailView/${post.id}`)} >
       <View className="flex-row items-center">
-        <Image source={{ uri: post.userPhotoURL || 'https://via.placeholder.com/40' }} className="w-8 h-8 rounded-full mr-2" style={{ borderWidth: 1, borderColor: colors.accent }} />
+        <Image source={{ uri: post.userPhotoURL || user?.profileImage || 'https://cdn-icons-png.flaticon.com/512/149/149071.png' }} className="w-8 h-8 rounded-full mr-2" style={{ borderWidth: 1, borderColor: colors.accent }} />
         <View>
           <AppText style={{ color: colors.text, fontWeight: '600', fontSize: 14 }}>{post.userName || 'Anonymous'}</AppText>
           <AppText style={{ color: colors.secondaryText, fontSize: 10 }}>{formattedTime}</AppText>
@@ -368,80 +399,25 @@ export default function EnhancedHome() {
     );
   };
 
-  const renderCarouselItem = useCallback(({ item, index }) => {
-    // Different gradient colors for each carousel item that blend with black theme
-    const gradientColors = [
-      ['rgba(139, 92, 246, 0.3)', 'rgba(59, 130, 246, 0.3)'], // Purple to Blue
-      ['rgba(99, 102, 241, 0.3)', 'rgba(139, 92, 246, 0.3)'], // Indigo to Purple  
-      ['rgba(59, 130, 246, 0.3)', 'rgba(16, 185, 129, 0.3)'], // Blue to Green
-      ['rgba(245, 101, 101, 0.3)', 'rgba(251, 191, 36, 0.3)'], // Red to Yellow
-    ];
-
-    const currentColors = gradientColors[index % gradientColors.length];
-    const mainText = item.title?.toUpperCase() || "LEADERBOARD CYCLE";
-    const subText = item.text || "Cycle 1 is over! Did you win?";
-
-    const handleCarouselPress = async () => {
-      if (item.path) {
-        await safeNavigate(`/(root)/(tabs)/${item.path}`, { push: true });
-      } else if (item.type === "hot-post" && item.post) {
-        await safeNavigate(`/postDetailView/${item.post.id}`, { push: true });
-      }
-    };
-
-    return (
-      <TouchableOpacity onPress={handleCarouselPress} activeOpacity={0.8}>
-        <LinearGradient
-          colors={currentColors}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-          style={{
-            width: width * 0.96,
-            height: 140,
-            borderRadius: 20,
-            marginHorizontal: width * 0.02,
-            justifyContent: 'center',
-            alignItems: 'center',
-            overflow: 'hidden',
-            borderWidth: 1,
-            borderColor: 'rgba(255, 255, 255, 0.1)',
-            elevation: 4,
-            shadowColor: '#000',
-            shadowOffset: { width: 0, height: 2 },
-            shadowOpacity: 0.25,
-            shadowRadius: 8,
-          }}
-        >
-          <AppText
-            style={{
-              color: '#fff',
-              fontSize: 26,
-              fontWeight: '700',
-              letterSpacing: 0.5,
-              textAlign: 'center',
-              textShadowColor: 'rgba(0, 0, 0, 0.4)',
-              textShadowOffset: { width: 0, height: 2 },
-              textShadowRadius: 4,
-            }}
-          >
-            {mainText}
-          </AppText>
-          <AppText
-            style={{
-              color: 'rgba(255, 255, 255, 0.95)',
-              fontSize: 15,
-              fontWeight: '500',
-              marginTop: 8,
-              textAlign: 'center',
-              opacity: 0.9,
-            }}
-          >
-            {subText}
-          </AppText>
-        </LinearGradient>
-      </TouchableOpacity>
-    );
-  }, [safeNavigate, width, colors]);
+  const renderCarousel = useCallback(() => (
+    <View style={{ marginVertical: 12 }}>
+      <Carousel
+        width={width * 0.98}
+        height={160}
+        data={carouselImages}
+        renderItem={({ item }) => (
+          <Image
+            source={item}
+            style={{ width: width * 0.98, height: 160, borderRadius: 20, resizeMode: 'cover' }}
+          />
+        )}
+        loop
+        autoPlay
+        autoPlayInterval={2000}
+        scrollAnimationDuration={500}
+      />
+    </View>
+  ), []);
 
   const toggleSearch = () => {
     setIsSearchExpanded(!isSearchExpanded);
@@ -579,45 +555,6 @@ export default function EnhancedHome() {
       </View>
     </View>
   ), [colors, theme, safeNavigate, user]);
-
-  const renderCarousel = useCallback(() => (
-        <View style={{ marginVertical: 12 }}>
-          <Carousel
-            width={width * 0.98}
-            height={160}
-            data={carouselItems}
-            renderItem={renderCarouselItem}
-            mode="parallax"
-            modeConfig={{ parallaxScrollingScale: 0.94, parallaxScrollingOffset: 35 }}
-            loop
-            autoPlay
-            autoPlayInterval={8000}
-            onProgressChange={(_, absoluteProgress) => setActiveCarouselIndex(Math.round(absoluteProgress))}
-            scrollAnimationDuration={500}
-          />
-          
-          {/* Dots at bottom */}
-          <View style={{
-            flexDirection: 'row',
-            justifyContent: 'center',
-            marginTop: 12,
-            paddingHorizontal: 16,
-          }}>
-            {carouselItems.map((_, index) => (
-              <View 
-                key={`indicator-${index}`} 
-                style={{
-                  width: 8,
-                  height: 8,
-                  borderRadius: 4,
-                  backgroundColor: index === activeCarouselIndex ? colors.accent : 'rgba(255, 255, 255, 0.3)',
-                  marginHorizontal: 4,
-                }} 
-              />
-            ))}
-          </View>
-        </View>
-  ), [carouselItems, activeCarouselIndex, colors.accent]);
 
   const renderHeader = useCallback(() => (
     <View style={{ paddingTop: 8 }}>

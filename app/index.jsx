@@ -61,7 +61,7 @@ export default function IndexPage() {
       });
 
       // Only redirect when we have clear states to avoid navigation conflicts
-      if (isAuthenticated === false) {
+      if (isAuthenticated === false || isAuthenticated === undefined) {
         console.log('➡️ Not authenticated, going to welcome');
         setRedirectTo('/(auth)/welcome');
         setShouldRedirect(true);
